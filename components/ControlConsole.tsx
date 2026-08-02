@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -24,8 +24,10 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { HOSPITALS, SCENARIO, STAGE_LABEL, stageAtLeast, useDemo } from "./DemoContext";
+import { HOSPITALS, SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type HospitalOption } from "./DemoContext";
 import styles from "./ControlConsole.module.css";
+
+const API_BASE = (process.env.NEXT_PUBLIC_EMS_API_BASE ?? "/api/local").replace(/\/$/, "");
 
 function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "teal" | "amber" | "green" | "red" }) {
   return <span className={styles.badge} data-tone={tone}>{children}</span>;
@@ -34,12 +36,41 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 export default function ControlConsole() {
   const { state, dispatch, selectedHospital } = useDemo();
   const [candidate, setCandidate] = useState("hallym");
+  const [hospitalOptions, setHospitalOptions] = useState<HospitalOption[]>(HOSPITALS);
+  const [directoryState, setDirectoryState] = useState<"idle" | "ready" | "fallback">("idle");
   const [toast, setToast] = useState<string | null>(null);
   const hasRequest = stageAtLeast(state.stage, "coordination-requested") || state.stage === "declined";
+  const timeFor = (...titles: string[]) =>
+    [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
 
-  const availableCandidate = HOSPITALS.find((hospital) => !state.declinedHospitalIds.includes(hospital.id));
+  useEffect(() => {
+    if (!hasRequest) return;
+
+    const controller = new AbortController();
+    fetch(`${API_BASE}/hospitals?lat=37.748&lng=127.849&case=${SCENARIO.id}`, {
+      signal: controller.signal,
+      headers: { accept: "application/json" },
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`병원정보 조회 실패: ${response.status}`);
+        return response.json() as Promise<{ hospitals?: HospitalOption[] }>;
+      })
+      .then((payload) => {
+        if (payload.hospitals?.length) setHospitalOptions(payload.hospitals);
+        setDirectoryState("ready");
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setHospitalOptions(HOSPITALS);
+        setDirectoryState("fallback");
+      });
+
+    return () => controller.abort();
+  }, [hasRequest]);
+
+  const availableCandidate = hospitalOptions.find((hospital) => !state.declinedHospitalIds.includes(hospital.id));
   const effectiveCandidateId = state.declinedHospitalIds.includes(candidate) ? (availableCandidate?.id ?? candidate) : candidate;
-  const activeCandidate = HOSPITALS.find((hospital) => hospital.id === effectiveCandidateId) ?? HOSPITALS[0];
+  const activeCandidate = hospitalOptions.find((hospital) => hospital.id === effectiveCandidateId) ?? hospitalOptions[0] ?? HOSPITALS[0];
   const requestState = useMemo(() => {
     if (state.stage === "coordination-requested") return { label: "병원 선택 필요", tone: "amber" as const, detail: "환자 확인본을 읽고 한 병원에 요청하세요." };
     if (state.stage === "declined") return { label: "다음 병원 확인", tone: "red" as const, detail: "이전 수용 곤란 기록을 유지한 채 다음 병원을 선택하세요." };
@@ -126,7 +157,7 @@ export default function ControlConsole() {
                     <div><span>RR</span><strong>{state.vitals.rr}</strong><small>회/분</small></div>
                     <div><span>SpO₂</span><strong>{state.vitals.spo2}</strong><small>%</small></div>
                     <div><span>BST</span><strong>{state.vitals.glucose}</strong><small>mg/dL</small></div>
-                    <div><span>AVPU</span><strong>{state.avpu}</strong><small>14:29</small></div>
+                    <div><span>AVPU</span><strong>{state.avpu}</strong><small>{timeFor("최초 활력징후 확인", "뇌졸중 선별정보 확인")}</small></div>
                   </div>
                   <div className={styles.keyFacts}>
                     <div><span>LNT</span><strong>{SCENARIO.lnt}</strong><small>{SCENARIO.lntSource} · 자녀 진술</small></div>
@@ -136,10 +167,10 @@ export default function ControlConsole() {
                 </section>
 
                 <section className={styles.candidates}>
-                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>병원 후보</h2></div><span>거리·ETA·기관정보 참고</span></div>
+                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>병원 후보</h2></div><span>{directoryState === "idle" ? "기관정보 조회 중" : directoryState === "fallback" ? "로컬 예비정보" : "거리·ETA·기관정보 참고"}</span></div>
                   <div className={styles.referenceNotice}><Info size={16} /><span>가까운 순이 추천 순위는 아닙니다. 공공정보만으로 수용 가능 여부를 판단하지 않습니다.</span></div>
                   <div className={styles.candidateList}>
-                    {HOSPITALS.map((hospital) => {
+                    {hospitalOptions.map((hospital) => {
                       const declined = state.declinedHospitalIds.includes(hospital.id);
                       const active = state.selectedHospitalId === hospital.id;
                       return (
@@ -198,11 +229,11 @@ export default function ControlConsole() {
           )}
 
           {stageAtLeast(state.stage, "transporting") && state.stage !== "complete" && (
-            <div className={styles.transportAction}><Navigation size={23} /><span><strong>{STAGE_LABEL[state.stage]}</strong><small>ETA {selectedHospital?.eta}</small></span><div><span>재평가</span><strong>{state.reassessmentSaved ? "14:52 수신" : "갱신 대기"}</strong></div><div><span>인계</span><strong>{state.stage === "handoff-sent" ? "병원 확인 대기" : "진행 전"}</strong></div></div>
+            <div className={styles.transportAction}><Navigation size={23} /><span><strong>{STAGE_LABEL[state.stage]}</strong><small>ETA {selectedHospital?.eta}</small></span><div><span>재평가</span><strong>{state.reassessmentSaved ? `${timeFor("이송 중 재평가")} 수신` : "갱신 대기"}</strong></div><div><span>인계</span><strong>{state.stage === "handoff-sent" ? "병원 확인 대기" : "진행 전"}</strong></div></div>
           )}
 
           {state.stage === "complete" && (
-            <div className={styles.completeAction}><CheckCircle2 size={27} /><h2>조정이 종료되었습니다</h2><p>{state.handoffRole} {state.handoffReceiver}<br />15:06 환자 인수 확인</p></div>
+            <div className={styles.completeAction}><CheckCircle2 size={27} /><h2>조정이 종료되었습니다</h2><p>{state.handoffRole} {state.handoffReceiver}<br />{timeFor("환자 인수 확인")} 환자 인수 확인</p></div>
           )}
 
           <div className={styles.boundary}>

@@ -14,7 +14,7 @@ import {
   Route,
   ShieldCheck,
 } from "lucide-react";
-import { DemoProvider, FLOW_STAGES, SCENARIO, STAGE_LABEL, useDemo, type Actor, type DemoStage } from "./DemoContext";
+import { DemoProvider, FLOW_STAGES, SCENARIO, STAGE_LABEL, useDemo, type Actor, type DemoEvent, type DemoStage } from "./DemoContext";
 import MobileApp from "./MobileApp";
 import ControlConsole from "./ControlConsole";
 import HospitalConsole from "./HospitalConsole";
@@ -76,27 +76,29 @@ const stageActor: Record<DemoStage, Actor> = {
   complete: "병원",
 };
 
-function stageTime(stage: DemoStage) {
-  const time: Record<DemoStage, string> = {
-    assigned: "14:21",
-    enroute: "14:22",
-    "scene-arrived": "14:27",
-    "patient-contact": "14:28",
-    assessing: "14:29",
-    "summary-ready": "14:32",
-    "coordination-requested": "14:33",
-    "hospital-requested": "14:34",
-    "info-requested": "14:35",
-    "info-sent": "14:36",
-    declined: "14:38",
-    accepted: "14:38",
-    "destination-confirmed": "14:39",
-    transporting: "14:40",
-    "hospital-arrived": "15:03",
-    "handoff-sent": "15:05",
-    complete: "15:06",
-  };
-  return time[stage];
+const stageEventTitle: Record<DemoStage, string> = {
+  assigned: "구급대 출동 지령",
+  enroute: "출동 시작",
+  "scene-arrived": "현장 도착",
+  "patient-contact": "환자 접촉",
+  assessing: "최초 활력징후 확인",
+  "summary-ready": "환자 확인본 생성",
+  "coordination-requested": "병원 조정 요청",
+  "hospital-requested": "병원 수용 확인 요청",
+  "info-requested": "추가정보 요청",
+  "info-sent": "추가정보 회신",
+  declined: "수용 곤란 회신",
+  accepted: "수용 가능 회신",
+  "destination-confirmed": "이송지 확인",
+  transporting: "이송 시작",
+  "hospital-arrived": "병원 도착",
+  "handoff-sent": "구두·전자 인계 완료",
+  complete: "환자 인수 확인",
+};
+
+function stageTime(stage: DemoStage, events: DemoEvent[]) {
+  const title = stageEventTitle[stage];
+  return [...events].reverse().find((event) => event.title === title)?.time ?? "—";
 }
 
 function noticeCount(view: View, stage: DemoStage) {
@@ -121,7 +123,7 @@ function WorkflowBoard({ onOpenRole }: { onOpenRole: (view: View) => void }) {
         </div>
         <div className={styles.heroFacts}>
           <span><MapPin size={16} /> {SCENARIO.locationShort}</span>
-          <span><Clock3 size={16} /> 신고 {SCENARIO.reportTime}</span>
+          <span><Clock3 size={16} /> 신고 {state.events.find((event) => event.title === "119 신고 접수")?.time ?? "—"}</span>
           <span><Activity size={16} /> {STAGE_LABEL[state.stage]}</span>
         </div>
       </div>
@@ -158,7 +160,7 @@ function WorkflowBoard({ onOpenRole }: { onOpenRole: (view: View) => void }) {
                   return (
                     <div className={`${styles.laneStep} ${done ? styles.stepDone : ""} ${current ? styles.stepCurrent : ""}`} key={stage}>
                       <span className={styles.stepMarker}>{done ? <Check size={14} /> : index + 1}</span>
-                      <div><time>{stageTime(stage)}</time><strong>{STAGE_LABEL[stage]}</strong></div>
+                      <div><time>{stageTime(stage, state.events)}</time><strong>{STAGE_LABEL[stage]}</strong></div>
                     </div>
                   );
                 })}
@@ -250,7 +252,7 @@ function AppShell() {
         </nav>
 
         <div className={styles.topActions}>
-          <span className={styles.liveState}><i /> 공통 사건 연결</span>
+          <span className={styles.liveState}><i /> 로컬 사건 연결</span>
           <button onClick={reset} aria-label="시연 초기화"><RefreshCcw size={17} /><span>초기화</span></button>
         </div>
       </header>

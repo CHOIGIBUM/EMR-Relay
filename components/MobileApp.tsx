@@ -33,7 +33,79 @@ import { SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type CpssValues, type Vit
 import styles from "./MobileApp.module.css";
 
 type Tab = "field" | "patient" | "hospital" | "handoff";
-type VoiceMode = "listening" | "review" | null;
+type VoiceMode = "listening" | "processing" | "review" | null;
+
+type VoiceStructuredFields = {
+  avpu: string;
+  face: string;
+  arm: string;
+  speech: string;
+  lnt: string;
+  fat: string;
+};
+
+type VoiceAgentResponse = {
+  transcript?: unknown;
+  structured?: Partial<Record<keyof VoiceStructuredFields, unknown>>;
+  needsReview?: unknown;
+  data?: {
+    transcript?: unknown;
+    structured?: Partial<Record<keyof VoiceStructuredFields, unknown>>;
+    needsReview?: unknown;
+  };
+};
+
+type VoiceResult = {
+  transcript: string;
+  structured: VoiceStructuredFields;
+  usedFallback: boolean;
+};
+
+const API_BASE = (process.env.NEXT_PUBLIC_EMS_API_BASE ?? "/api/local").replace(/\/$/, "");
+
+const FALLBACK_VOICE_RESULT: VoiceResult = {
+  transcript: "78세 여성, 의식 명료. 오른쪽 얼굴과 팔에 위약이 있고 말이 어눌합니다. LNT 13시 40분, FAT 14시 15분입니다.",
+  structured: {
+    avpu: "A",
+    face: "우측",
+    arm: "우측",
+    speech: "어눌함",
+    lnt: "13:40",
+    fat: "14:15",
+  },
+  usedFallback: true,
+};
+
+function normalizeVoiceResult(payload: VoiceAgentResponse): VoiceResult {
+  const source = payload.data ?? payload;
+  const structured = source.structured ?? {};
+  let usedFallback = source.needsReview === true;
+
+  const valueOrFallback = (key: keyof VoiceStructuredFields) => {
+    const value = structured[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    usedFallback = true;
+    return FALLBACK_VOICE_RESULT.structured[key];
+  };
+
+  const transcript = typeof source.transcript === "string" && source.transcript.trim()
+    ? source.transcript.trim()
+    : FALLBACK_VOICE_RESULT.transcript;
+  if (transcript === FALLBACK_VOICE_RESULT.transcript && source.transcript !== FALLBACK_VOICE_RESULT.transcript) usedFallback = true;
+
+  return {
+    transcript,
+    structured: {
+      avpu: valueOrFallback("avpu"),
+      face: valueOrFallback("face"),
+      arm: valueOrFallback("arm"),
+      speech: valueOrFallback("speech"),
+      lnt: valueOrFallback("lnt"),
+      fat: valueOrFallback("fat"),
+    },
+    usedFallback,
+  };
+}
 
 function defaultTab(stage: ReturnType<typeof useDemo>["state"]["stage"]): Tab {
   if (["coordination-requested", "hospital-requested", "info-requested", "info-sent", "declined", "accepted", "destination-confirmed"].includes(stage)) return "hospital";
@@ -83,9 +155,16 @@ export default function MobileApp() {
   const [caseOpen, setCaseOpen] = useState(false);
   const [tab, setTab] = useState<Tab>(() => defaultTab(state.stage));
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
+  const [voiceResult, setVoiceResult] = useState<VoiceResult>(FALLBACK_VOICE_RESULT);
   const [transcriptIndex, setTranscriptIndex] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const toastRef = useRef<number | null>(null);
+  const timeFor = (...titles: string[]) =>
+    [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
+  const latestEventTime = state.events.at(-1)?.time ?? "—";
+  const voiceModeRef = useRef<VoiceMode>(null);
+  const voiceRequestRef = useRef<AbortController | null>(null);
+  const voiceRequestIdRef = useRef(0);
 
   const notify = (message: string) => {
     setToast(message);
@@ -95,6 +174,9 @@ export default function MobileApp() {
 
   useEffect(() => () => {
     if (toastRef.current) window.clearTimeout(toastRef.current);
+    voiceRequestIdRef.current += 1;
+    voiceRequestRef.current?.abort();
+    voiceRequestRef.current = null;
   }, []);
 
   useEffect(() => {
@@ -110,13 +192,63 @@ export default function MobileApp() {
     [state.vitalsConfirmed, state.avpu, state.voiceConfirmed, state.cpss],
   );
 
+  const setVoicePhase = (next: VoiceMode) => {
+    voiceModeRef.current = next;
+    setVoiceMode(next);
+  };
+
+  const cancelVoice = () => {
+    voiceRequestIdRef.current += 1;
+    voiceRequestRef.current?.abort();
+    voiceRequestRef.current = null;
+    setVoicePhase(null);
+  };
+
   const beginVoice = () => {
+    if (voiceModeRef.current !== null) return;
+    voiceRequestIdRef.current += 1;
+    voiceRequestRef.current?.abort();
+    voiceRequestRef.current = null;
     setTranscriptIndex(0);
-    setVoiceMode("listening");
+    setVoicePhase("listening");
   };
 
   const finishVoice = () => {
-    if (voiceMode === "listening") setVoiceMode("review");
+    if (voiceModeRef.current !== "listening") return;
+
+    const requestId = voiceRequestIdRef.current + 1;
+    voiceRequestIdRef.current = requestId;
+    const controller = new AbortController();
+    voiceRequestRef.current?.abort();
+    voiceRequestRef.current = controller;
+    setVoicePhase("processing");
+
+    void (async () => {
+      try {
+        const response = await fetch(`${API_BASE}/agent`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "STRUCTURE_VOICE",
+            incidentId: SCENARIO.id,
+            locale: "ko-KR",
+            transcript: FALLBACK_VOICE_RESULT.transcript,
+          }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`Voice agent request failed: ${response.status}`);
+        const payload = await response.json() as VoiceAgentResponse;
+        if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
+        setVoiceResult(normalizeVoiceResult(payload));
+        setVoicePhase("review");
+      } catch {
+        if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
+        setVoiceResult(FALLBACK_VOICE_RESULT);
+        setVoicePhase("review");
+      } finally {
+        if (voiceRequestIdRef.current === requestId) voiceRequestRef.current = null;
+      }
+    })();
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
@@ -130,7 +262,7 @@ export default function MobileApp() {
   };
 
   const handleVoiceKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if ((event.key === " " || event.key === "Enter") && voiceMode === null) {
+    if ((event.key === " " || event.key === "Enter") && voiceModeRef.current === null) {
       event.preventDefault();
       beginVoice();
     }
@@ -146,7 +278,7 @@ export default function MobileApp() {
   const phoneHeader = (
     <>
       <div className={styles.deviceBar}>
-        <strong>14:32</strong>
+        <strong>{latestEventTime}</strong>
         <span>●●●　Wi-Fi　▰</span>
       </div>
       <header className={styles.appHeader}>
@@ -176,7 +308,7 @@ export default function MobileApp() {
         <button className={styles.caseCard} onClick={() => setCaseOpen(true)}>
           <div className={styles.caseTop}>
             <span>{SCENARIO.id}</span>
-            <time><Clock3 size={14} /> 지령 {SCENARIO.dispatchTime}</time>
+            <time><Clock3 size={14} /> 지령 {timeFor("구급대 출동 지령")}</time>
           </div>
           <strong>의식·운동 이상</strong>
           <p>{SCENARIO.reportedPatient} · {SCENARIO.reportedComplaint}</p>
@@ -200,7 +332,7 @@ export default function MobileApp() {
             <p>{SCENARIO.reportedComplaint}</p>
             <dl>
               <div><dt>신고자</dt><dd>{SCENARIO.caller}</dd></div>
-              <div><dt>신고시각</dt><dd>{SCENARIO.reportTime}</dd></div>
+              <div><dt>신고시각</dt><dd>{timeFor("119 신고 접수")}</dd></div>
               <div><dt>의식·호흡</dt><dd>의식 있음 · 호흡함</dd></div>
               <div><dt>발견시각</dt><dd>14:15 추정</dd></div>
             </dl>
@@ -223,20 +355,20 @@ export default function MobileApp() {
           </section>
 
           <div className={styles.timeStrip}>
-            <div data-state="done"><span><Check size={13} /></span><strong>신고 접수</strong><time>14:20</time></div>
+            <div data-state="done"><span><Check size={13} /></span><strong>신고 접수</strong><time>{timeFor("119 신고 접수")}</time></div>
             <i />
-            <div data-state={enroute ? "done" : "current"}><span>{enroute ? <Check size={13} /> : "2"}</span><strong>출동 시작</strong><time>{enroute ? "14:22" : "확인 전"}</time></div>
+            <div data-state={enroute ? "done" : "current"}><span>{enroute ? <Check size={13} /> : "2"}</span><strong>출동 시작</strong><time>{enroute ? timeFor("출동 시작") : "확인 전"}</time></div>
             <i />
             <div data-state={enroute ? "current" : "waiting"}><span>3</span><strong>현장 도착</strong><time>도착 후 확인</time></div>
           </div>
         </main>
         <div className={styles.stickyAction}>
           {!enroute ? (
-            <button className={styles.primaryAction} onClick={() => transition("enroute", "14:22", "구급대원", "출동 시작", "홍천소방서 구급1대 · 시각 자동 기록", "teal")}>
+            <button className={styles.primaryAction} onClick={() => transition("enroute", "구급대원", "출동 시작", "홍천소방서 구급1대 · 시각 자동 기록", "teal")}>
               <Ambulance size={21} /> 출동 시작
             </button>
           ) : (
-            <button className={styles.primaryAction} onClick={() => transition("scene-arrived", "14:27", "구급대원", "현장 도착", `${SCENARIO.location} · GPS 확인`, "teal")}>
+            <button className={styles.primaryAction} onClick={() => transition("scene-arrived", "구급대원", "현장 도착", `${SCENARIO.location} · GPS 확인`, "teal")}>
               <MapPin size={21} /> 현장 도착
             </button>
           )}
@@ -253,7 +385,7 @@ export default function MobileApp() {
         <section className={styles.arrivalHero}>
           <span><CheckCircle2 size={28} /></span>
           <h1>현장 도착을 기록했습니다</h1>
-          <p>14:27 · {SCENARIO.location}</p>
+          <p>{timeFor("현장 도착")} · {SCENARIO.location}</p>
         </section>
         <section className={styles.arrivalChecklist}>
           <div><ShieldCheck size={18} /><span><strong>현장 안전 확인</strong><small>특이 위험요소 신고 없음</small></span><StatusBadge tone="teal">확인</StatusBadge></div>
@@ -263,7 +395,7 @@ export default function MobileApp() {
         <div className={styles.noticeBox}><Info size={18} /><span><strong>현장 도착과 환자 접촉은 다릅니다.</strong><small>환자를 실제로 확인한 뒤 접촉 버튼을 눌러주세요.</small></span></div>
       </main>
       <div className={styles.stickyAction}>
-        <button className={styles.primaryAction} onClick={() => transition("patient-contact", "14:28", "구급대원", "환자 접촉", "78세 여성 · 현장 직접 확인", "teal")}>
+        <button className={styles.primaryAction} onClick={() => transition("patient-contact", "구급대원", "환자 접촉", "78세 여성 · 현장 직접 확인", "teal")}>
           <UserRound size={21} /> 환자 접촉
         </button>
         <span>환자를 실제로 확인한 시각이 기록됩니다.</span>
@@ -285,7 +417,7 @@ export default function MobileApp() {
       <div className={styles.warningBox}><AlertTriangle size={18} /><span><strong>신고 내용은 진단 결과가 아닙니다.</strong><small>환자 상태를 직접 평가하고 확인한 값만 공유합니다.</small></span></div>
 
       <section className={styles.formSection}>
-        <div className={styles.sectionTitle}><div><HeartPulse size={18} /><strong>최초 활력징후</strong></div><span>측정시각 {state.vitalsConfirmed ? "14:29" : "미기록"}</span></div>
+        <div className={styles.sectionTitle}><div><HeartPulse size={18} /><strong>최초 활력징후</strong></div><span>측정시각 {state.vitalsConfirmed ? timeFor("최초 활력징후 확인") : "미기록"}</span></div>
         {!state.vitalsConfirmed && (
           <button className={styles.measureButton} onClick={() => dispatch({ type: "LOAD_VITALS" })}>
             <Activity size={18} /><span><strong>측정값 입력</strong><small>시연 환자의 측정값을 불러와 수정할 수 있습니다.</small></span><ArrowRight size={17} />
@@ -361,7 +493,7 @@ export default function MobileApp() {
         <div><span>RR</span><strong>{state.vitals.rr || "—"}</strong><small>회/분</small></div>
         <div><span>SpO₂</span><strong>{state.vitals.spo2 || "—"}</strong><small>%</small></div>
         <div><span>BST</span><strong>{state.vitals.glucose || "—"}</strong><small>mg/dL</small></div>
-        <div><span>AVPU</span><strong>{state.avpu}</strong><small>14:29</small></div>
+        <div><span>AVPU</span><strong>{state.avpu}</strong><small>{timeFor("최초 활력징후 확인", "뇌졸중 선별정보 확인")}</small></div>
       </section>
 
       <section className={styles.detailList}>
@@ -425,7 +557,7 @@ export default function MobileApp() {
         )}
 
         {state.stage === "destination-confirmed" && (
-          <button className={styles.fullAction} onClick={() => { transition("transporting", "14:40", "구급대원", "이송 시작", `${selectedHospital?.name} · ETA ${selectedHospital?.eta}`, "teal"); setTab("field"); }}>
+          <button className={styles.fullAction} onClick={() => { transition("transporting", "구급대원", "이송 시작", `${selectedHospital?.name} · ETA ${selectedHospital?.eta}`, "teal"); setTab("field"); }}>
             <Ambulance size={19} /> 이송 시작
           </button>
         )}
@@ -451,8 +583,8 @@ export default function MobileApp() {
         <div className={styles.etaPanel}><span>예상 도착</span><strong>{selectedHospital?.eta ?? "35분"}</strong><small>{selectedHospital?.name}</small></div>
       </section>
       <section className={styles.transportStatus}>
-        <div><span>이송 시작</span><strong>14:40</strong></div>
-        <div><span>최근 갱신</span><strong>{state.reassessmentSaved ? "14:52" : "14:40"}</strong></div>
+        <div><span>이송 시작</span><strong>{timeFor("이송 시작")}</strong></div>
+        <div><span>최근 갱신</span><strong>{state.reassessmentSaved ? timeFor("이송 중 재평가") : timeFor("이송 시작")}</strong></div>
         <div><span>상태 공유</span><strong>{state.reassessmentSaved ? "병원 전달됨" : "최초 상태"}</strong></div>
       </section>
       <section className={styles.recheckCard}>
@@ -460,7 +592,7 @@ export default function MobileApp() {
         <div className={styles.recheckValues}><span>AVPU <b>A</b></span><span>BP <b>180/98</b> mmHg</span><span>SpO₂ <b>97%</b></span><span>증상 <b>지속</b></span></div>
         {!state.reassessmentSaved && <button onClick={() => dispatch({ type: "SAVE_REASSESSMENT" })}><RefreshCw size={17} /> 재평가 기록</button>}
       </section>
-      <button className={styles.fullAction} onClick={() => { transition("hospital-arrived", "15:03", "구급대원", "병원 도착", `${selectedHospital?.name} · GPS 및 사용자 확인`, "teal"); setTab("handoff"); }}>
+      <button className={styles.fullAction} onClick={() => { transition("hospital-arrived", "구급대원", "병원 도착", `${selectedHospital?.name} · GPS 및 사용자 확인`, "teal"); setTab("handoff"); }}>
         <Hospital size={19} /> 병원 도착
       </button>
     </>
@@ -470,7 +602,7 @@ export default function MobileApp() {
     <>
       <section className={styles.handoffHero} data-complete={state.stage === "complete"}>
         <span>{state.stage === "complete" ? <CheckCircle2 size={30} /> : <ClipboardCheck size={30} />}</span>
-        <div><small>{state.stage === "complete" ? "환자 인수 완료" : state.stage === "handoff-sent" ? "병원 인수 확인 대기" : "병원 도착 15:03"}</small><h1>{state.stage === "complete" ? "인계가 완료되었습니다" : "최종 인계 내용을 확인하세요"}</h1><p>{selectedHospital?.name}</p></div>
+        <div><small>{state.stage === "complete" ? "환자 인수 완료" : state.stage === "handoff-sent" ? "병원 인수 확인 대기" : `병원 도착 ${timeFor("병원 도착")}`}</small><h1>{state.stage === "complete" ? "인계가 완료되었습니다" : "최종 인계 내용을 확인하세요"}</h1><p>{selectedHospital?.name}</p></div>
       </section>
       <section className={styles.handoffCard}>
         <div className={styles.sectionTitle}><div><FileText size={18} /><strong>구두·전자 인계 카드</strong></div><SourceTag tone="confirmed">최종 확인본</SourceTag></div>
@@ -493,7 +625,7 @@ export default function MobileApp() {
       {state.stage === "complete" && (
         <section className={styles.completeDetails}>
           <div><span>인수자</span><strong>{state.handoffRole} {state.handoffReceiver}</strong></div>
-          <div><span>인수시각</span><strong>15:06</strong></div>
+          <div><span>인수시각</span><strong>{timeFor("환자 인수 확인")}</strong></div>
           <div><span>사건상태</span><strong>환자 인수 완료</strong></div>
         </section>
       )}
@@ -537,8 +669,8 @@ export default function MobileApp() {
         {toast && <div className={styles.toast} role="status"><CheckCircle2 size={18} /> {toast}</div>}
 
         {voiceMode && (
-          <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록">
-            <button className={styles.voiceClose} aria-label="음성 입력 닫기" onClick={() => setVoiceMode(null)}><X size={19} /></button>
+          <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록" aria-busy={voiceMode === "processing"}>
+            <button className={styles.voiceClose} aria-label="음성 입력 닫기" onClick={cancelVoice}><X size={19} /></button>
             {voiceMode === "listening" ? (
               <div className={styles.listeningPanel}>
                 <span className={styles.micPulse}><Mic size={27} /></span>
@@ -551,22 +683,30 @@ export default function MobileApp() {
                   onKeyUp={handleVoiceKeyUp}
                 >손을 떼면 내용 확인</button>
               </div>
+            ) : voiceMode === "processing" ? (
+              <div className={styles.listeningPanel} role="status" aria-live="polite">
+                <span className={styles.micPulse}><Activity size={27} /></span>
+                <h2>환자 상태를 정리하고 있습니다</h2>
+                <p>말한 내용을 구조화하고 확인할 항목을 준비합니다.</p>
+                <div className={styles.liveTranscript}>{FALLBACK_VOICE_RESULT.transcript}</div>
+                <button onClick={cancelVoice}>처리 취소</button>
+              </div>
             ) : (
               <div className={styles.voiceReview}>
                 <span className={styles.reviewIcon}><ClipboardCheck size={25} /></span>
                 <h2>말한 내용을 확인하세요</h2>
-                <p>확인하기 전에는 환자 기록이나 병원에 전달되지 않습니다.</p>
-                <div className={styles.transcriptBox}>“78세 여성, 의식 명료. 오른쪽 얼굴과 팔에 위약이 있고 말이 어눌합니다. LNT 13시 40분, FAT 14시 15분입니다.”</div>
+                <p>{voiceResult.usedFallback ? "확인할 수 없는 항목은 시연 예제값으로 보완했습니다. 확인하기 전에는 기록되지 않습니다." : "로컬 에이전트가 정리한 후보입니다. 확인하기 전에는 환자 기록이나 병원에 전달되지 않습니다."}</p>
+                <div className={styles.transcriptBox}>“{voiceResult.transcript}”</div>
                 <div className={styles.extractedList}>
-                  <div><span>AVPU</span><strong>A</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>얼굴 처짐</span><strong>우측</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>팔 위약</span><strong>우측</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>말하기</span><strong>어눌함</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>LNT / FAT</span><strong>13:40 / 14:15</strong><SourceTag>확인 대기</SourceTag></div>
+                  <div><span>AVPU</span><strong>{voiceResult.structured.avpu}</strong><SourceTag>확인 대기</SourceTag></div>
+                  <div><span>얼굴 처짐</span><strong>{voiceResult.structured.face}</strong><SourceTag>확인 대기</SourceTag></div>
+                  <div><span>팔 위약</span><strong>{voiceResult.structured.arm}</strong><SourceTag>확인 대기</SourceTag></div>
+                  <div><span>말하기</span><strong>{voiceResult.structured.speech}</strong><SourceTag>확인 대기</SourceTag></div>
+                  <div><span>LNT / FAT</span><strong>{voiceResult.structured.lnt} / {voiceResult.structured.fat}</strong><SourceTag>확인 대기</SourceTag></div>
                 </div>
                 <div className={styles.reviewActions}>
-                  <button onClick={() => setVoiceMode(null)}>취소</button>
-                  <button onClick={() => { dispatch({ type: "CONFIRM_VOICE" }); setVoiceMode(null); notify("구급대원 확인값으로 반영했습니다."); }}><Check size={18} /> 현장 기록에 반영</button>
+                  <button onClick={cancelVoice}>취소</button>
+                  <button onClick={() => { dispatch({ type: "CONFIRM_VOICE" }); setVoicePhase(null); notify("구급대원 확인값으로 반영했습니다."); }}><Check size={18} /> 현장 기록에 반영</button>
                 </div>
               </div>
             )}

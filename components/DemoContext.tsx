@@ -1,6 +1,15 @@
 "use client";
 
-import { createContext, useContext, useMemo, useReducer, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  type ReactNode,
+} from "react";
 
 export type DemoStage =
   | "assigned"
@@ -60,8 +69,6 @@ export type HospitalOption = {
 
 export const SCENARIO = {
   id: "EMS-GW-001",
-  reportTime: "14:20",
-  dispatchTime: "14:21",
   location: "홍천군 북방면 굴지리 125",
   locationShort: "홍천군 북방면",
   access: "단독주택 · 마당 안쪽 출입문",
@@ -173,23 +180,38 @@ export type DemoState = {
   events: DemoEvent[];
 };
 
-const initialEvents: DemoEvent[] = [
-  {
-    id: 1,
-    time: "14:20",
-    actor: "119 상황실",
-    title: "119 신고 접수",
-    detail: "이웃 신고 · 말이 어눌하고 오른팔에 힘이 없음",
-  },
-  {
-    id: 2,
-    time: "14:21",
-    actor: "119 상황실",
-    title: "구급대 출동 지령",
-    detail: "홍천소방서 구급1대 배정",
-    tone: "teal",
-  },
-];
+function formatEventTime(date = new Date()) {
+  return new Intl.DateTimeFormat("ko-KR", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function createInitialEvents(): DemoEvent[] {
+  const now = new Date();
+  const reportAt = new Date(now.getTime() - 2 * 60_000);
+  const dispatchAt = new Date(now.getTime() - 1 * 60_000);
+  return [
+    {
+      id: 1,
+      time: formatEventTime(reportAt),
+      actor: "119 상황실",
+      title: "119 신고 접수",
+      detail: "이웃 신고 · 말이 어눌하고 오른팔에 힘이 없음",
+    },
+    {
+      id: 2,
+      time: formatEventTime(dispatchAt),
+      actor: "119 상황실",
+      title: "구급대 출동 지령",
+      detail: "홍천소방서 구급1대 배정",
+      tone: "teal",
+    },
+  ];
+}
+
+const initialEvents = createInitialEvents();
 
 export const initialDemoState: DemoState = {
   stage: "assigned",
@@ -211,9 +233,140 @@ export const initialDemoState: DemoState = {
   events: initialEvents,
 };
 
-type Action =
+export const DEMO_STORAGE_VERSION = 2;
+export const DEMO_STORAGE_KEY = "ems-relay:mvp-state";
+export const DEMO_CHANNEL_NAME = "ems-relay:mvp-state-sync";
+
+type DemoStateSnapshot = {
+  version: typeof DEMO_STORAGE_VERSION;
+  updatedAt: number;
+  sourceId: string;
+  state: DemoState;
+};
+
+function cloneDemoState(state: DemoState): DemoState {
+  return {
+    ...state,
+    vitals: { ...state.vitals },
+    cpss: { ...state.cpss },
+    declinedHospitalIds: [...state.declinedHospitalIds],
+    requestedInfo: [...state.requestedInfo],
+    events: state.events.map((event) => ({ ...event })),
+  };
+}
+
+function createInitialDemoState(): DemoState {
+  return { ...cloneDemoState(initialDemoState), events: createInitialEvents() };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isDemoEvent(value: unknown): value is DemoEvent {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.id === "number"
+    && Number.isFinite(value.id)
+    && typeof value.time === "string"
+    && typeof value.actor === "string"
+    && typeof value.title === "string"
+    && typeof value.detail === "string"
+    && (value.tone === undefined || ["neutral", "teal", "amber", "red"].includes(String(value.tone)))
+  );
+}
+
+function isDemoState(value: unknown): value is DemoState {
+  if (!isRecord(value)) return false;
+  const vitals = value.vitals;
+  const cpss = value.cpss;
+  if (!isRecord(vitals) || !isRecord(cpss)) return false;
+
+  const validStages: DemoStage[] = [...FLOW_STAGES, "declined"];
+  const validAvpu: DemoState["avpu"][] = [initialDemoState.avpu, "A", "V", "P", "U"];
+  const selectedHospitalIsValid = value.selectedHospitalId === null
+    || (typeof value.selectedHospitalId === "string" && HOSPITALS.some((hospital) => hospital.id === value.selectedHospitalId));
+
+  return (
+    typeof value.stage === "string"
+    && validStages.includes(value.stage as DemoStage)
+    && ["bp", "pr", "rr", "spo2", "temp", "glucose"].every((key) => typeof vitals[key] === "string")
+    && typeof value.vitalsConfirmed === "boolean"
+    && typeof value.avpu === "string"
+    && validAvpu.includes(value.avpu as DemoState["avpu"])
+    && ["face", "arm", "speech"].every((key) => typeof cpss[key] === "string")
+    && typeof value.strokeConfirmed === "boolean"
+    && typeof value.voiceConfirmed === "boolean"
+    && selectedHospitalIsValid
+    && isStringArray(value.declinedHospitalIds)
+    && value.declinedHospitalIds.every((id) => HOSPITALS.some((hospital) => hospital.id === id))
+    && isStringArray(value.requestedInfo)
+    && (value.infoReply === null || typeof value.infoReply === "string")
+    && typeof value.hospitalViewed === "boolean"
+    && typeof value.destinationConfirmed === "boolean"
+    && typeof value.reassessmentSaved === "boolean"
+    && typeof value.handoffReceiver === "string"
+    && typeof value.handoffRole === "string"
+    && Array.isArray(value.events)
+    && value.events.every(isDemoEvent)
+  );
+}
+
+function parseSnapshot(value: unknown): DemoStateSnapshot | null {
+  if (!isRecord(value)) return null;
+  if (value.version !== DEMO_STORAGE_VERSION) return null;
+  if (typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt) || value.updatedAt <= 0) return null;
+  if (typeof value.sourceId !== "string" || value.sourceId.length === 0) return null;
+  if (!isDemoState(value.state)) return null;
+
+  return {
+    version: DEMO_STORAGE_VERSION,
+    updatedAt: value.updatedAt,
+    sourceId: value.sourceId,
+    state: cloneDemoState(value.state),
+  };
+}
+
+function parseStoredSnapshot(serialized: string | null): DemoStateSnapshot | null {
+  if (serialized === null) return null;
+  try {
+    return parseSnapshot(JSON.parse(serialized));
+  } catch {
+    return null;
+  }
+}
+
+function readStoredSnapshot(): DemoStateSnapshot | null {
+  try {
+    const serialized = window.localStorage.getItem(DEMO_STORAGE_KEY);
+    const snapshot = parseStoredSnapshot(serialized);
+    if (serialized !== null && snapshot === null) window.localStorage.removeItem(DEMO_STORAGE_KEY);
+    return snapshot;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSnapshot(snapshot: DemoStateSnapshot) {
+  try {
+    window.localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Storage may be unavailable in private or restricted browser contexts.
+  }
+}
+
+function createSourceId() {
+  if (typeof window.crypto?.randomUUID === "function") return window.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+type Action = (
   | { type: "RESET" }
-  | { type: "TRANSITION"; stage: DemoStage; time: string; actor: Actor; title: string; detail: string; tone?: EventTone }
+  | { type: "TRANSITION"; stage: DemoStage; actor: Actor; title: string; detail: string; tone?: EventTone }
   | { type: "LOAD_VITALS" }
   | { type: "SET_VITAL"; key: keyof VitalValues; value: string }
   | { type: "SET_AVPU"; value: DemoState["avpu"] }
@@ -230,7 +383,18 @@ type Action =
   | { type: "CONFIRM_DESTINATION" }
   | { type: "SAVE_REASSESSMENT" }
   | { type: "SET_HANDOFF"; receiver: string; role: string }
-  | { type: "RECEIVE_PATIENT"; receiver: string; role: string };
+  | { type: "RECEIVE_PATIENT"; receiver: string; role: string }
+) & { occurredAt?: string };
+
+type ManagedState = {
+  value: DemoState;
+  origin: "initial" | "local" | "hydrate" | "remote";
+  revision: number;
+};
+
+type ManagedAction =
+  | { type: "LOCAL_ACTION"; action: Action }
+  | { type: "REPLACE_STATE"; state: DemoState; origin: "hydrate" | "remote" };
 
 function appendEvent(
   state: DemoState,
@@ -243,13 +407,14 @@ function appendEvent(
 }
 
 function reducer(state: DemoState, action: Action): DemoState {
+  const occurredAt = action.occurredAt ?? formatEventTime();
   switch (action.type) {
     case "RESET":
-      return { ...initialDemoState, events: initialEvents.map((event) => ({ ...event })) };
+      return createInitialDemoState();
     case "TRANSITION":
       return appendEvent(
         { ...state, stage: action.stage },
-        { time: action.time, actor: action.actor, title: action.title, detail: action.detail, tone: action.tone },
+        { time: occurredAt, actor: action.actor, title: action.title, detail: action.detail, tone: action.tone },
       );
     case "LOAD_VITALS":
       return appendEvent(
@@ -261,7 +426,7 @@ function reducer(state: DemoState, action: Action): DemoState {
           avpu: "A",
         },
         {
-          time: "14:29",
+          time: occurredAt,
           actor: "구급대원",
           title: "최초 활력징후 확인",
           detail: "BP 178/96 mmHg · PR 92회/분 · SpO₂ 97% · BST 118 mg/dL",
@@ -284,7 +449,7 @@ function reducer(state: DemoState, action: Action): DemoState {
           cpss: { face: "우측", arm: "우측", speech: "어눌함" },
         },
         {
-          time: "14:30",
+          time: occurredAt,
           actor: "구급대원",
           title: "뇌졸중 선별정보 확인",
           detail: "우측 얼굴·팔 위약, 구음장애 · LNT 13:40 · FAT 14:15",
@@ -295,7 +460,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "summary-ready", strokeConfirmed: true },
         {
-          time: "14:32",
+          time: occurredAt,
           actor: "구급대원",
           title: "환자 확인본 생성",
           detail: "급성 뇌졸중 의심 · Pre-KTAS 2 · 미상 항목 포함",
@@ -306,7 +471,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "coordination-requested" },
         {
-          time: "14:33",
+          time: occurredAt,
           actor: "구급대원",
           title: "병원 조정 요청",
           detail: "이송조정 상황실에 구급대원 확인본 전달",
@@ -318,7 +483,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "hospital-requested", selectedHospitalId: action.hospitalId, requestedInfo: [], infoReply: null, hospitalViewed: false },
         {
-          time: state.declinedHospitalIds.length ? "14:37" : "14:34",
+          time: occurredAt,
           actor: "이송조정 상황실",
           title: "병원 수용 확인 요청",
           detail: `${hospital.name} · 활성 요청 1건`,
@@ -331,7 +496,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, hospitalViewed: true },
         {
-          time: "14:34",
+          time: occurredAt,
           actor: "병원",
           title: "수용 요청 열람",
           detail: "병원 담당자가 구급대원 환자 확인본을 열람",
@@ -341,7 +506,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "info-requested", requestedInfo: action.fields },
         {
-          time: "14:35",
+          time: occurredAt,
           actor: "병원",
           title: "추가정보 요청",
           detail: action.fields.join(" · "),
@@ -352,7 +517,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "info-sent", infoReply: "항응고제 복용 여부와 마지막 복용시각 미상" },
         {
-          time: "14:36",
+          time: occurredAt,
           actor: "구급대원",
           title: "추가정보 회신",
           detail: "항응고제 복용 여부와 마지막 복용시각 미상",
@@ -370,7 +535,7 @@ function reducer(state: DemoState, action: Action): DemoState {
             : state.declinedHospitalIds,
         },
         {
-          time: "14:38",
+          time: occurredAt,
           actor: "병원",
           title: "수용 곤란 회신",
           detail: `${hospital?.name ?? "요청 병원"} · ${action.reason}`,
@@ -383,7 +548,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "accepted" },
         {
-          time: "14:38",
+          time: occurredAt,
           actor: "병원",
           title: "수용 가능 회신",
           detail: `${hospital?.name ?? "요청 병원"} · 응급실 구급차 출입구`,
@@ -395,7 +560,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "destination-confirmed", destinationConfirmed: true },
         {
-          time: "14:39",
+          time: occurredAt,
           actor: "구급대원",
           title: "이송지 확인",
           detail: HOSPITALS.find((item) => item.id === state.selectedHospitalId)?.name ?? "수용 병원",
@@ -406,7 +571,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, reassessmentSaved: true },
         {
-          time: "14:52",
+          time: occurredAt,
           actor: "구급대원",
           title: "이송 중 재평가",
           detail: "AVPU A · BP 180/98 mmHg · SpO₂ 97% · 증상 지속",
@@ -416,7 +581,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "handoff-sent", handoffReceiver: action.receiver, handoffRole: action.role },
         {
-          time: "15:05",
+          time: occurredAt,
           actor: "구급대원",
           title: "구두·전자 인계 완료",
           detail: "병원 의료진 인수 확인 대기",
@@ -427,7 +592,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       return appendEvent(
         { ...state, stage: "complete", handoffReceiver: action.receiver, handoffRole: action.role },
         {
-          time: "15:06",
+          time: occurredAt,
           actor: "병원",
           title: "환자 인수 확인",
           detail: `${action.role} ${action.receiver || "담당자"} · 사건 종료`,
@@ -439,19 +604,139 @@ function reducer(state: DemoState, action: Action): DemoState {
   }
 }
 
+function managedReducer(state: ManagedState, action: ManagedAction): ManagedState {
+  if (action.type === "REPLACE_STATE") {
+    return {
+      value: cloneDemoState(action.state),
+      origin: action.origin,
+      revision: state.revision + 1,
+    };
+  }
+
+  const nextState = reducer(state.value, action.action);
+  if (nextState === state.value) return state;
+  return {
+    value: nextState,
+    origin: "local",
+    revision: state.revision + 1,
+  };
+}
+
 type DemoContextValue = {
   state: DemoState;
   selectedHospital: HospitalOption | null;
   progress: number;
   dispatch: React.Dispatch<Action>;
   reset: () => void;
-  transition: (stage: DemoStage, time: string, actor: Actor, title: string, detail: string, tone?: EventTone) => void;
+  transition: (stage: DemoStage, actor: Actor, title: string, detail: string, tone?: EventTone) => void;
 };
 
 const DemoContext = createContext<DemoContextValue | null>(null);
 
 export function DemoProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialDemoState);
+  const [managedState, managedDispatch] = useReducer(managedReducer, {
+    value: createInitialDemoState(),
+    origin: "initial",
+    revision: 0,
+  });
+  const hydratedRef = useRef(false);
+  const sourceIdRef = useRef("");
+  const lastAppliedAtRef = useRef(0);
+  const channelRef = useRef<BroadcastChannel | null>(null);
+  const pendingRemoteSnapshotRef = useRef<DemoStateSnapshot | null>(null);
+
+  const state = managedState.value;
+  const dispatch = useCallback<React.Dispatch<Action>>((action) => {
+    managedDispatch({
+      type: "LOCAL_ACTION",
+      action: { ...action, occurredAt: formatEventTime() } as Action,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+
+    const sourceId = sourceIdRef.current || createSourceId();
+    sourceIdRef.current = sourceId;
+
+    const receiveSnapshot = (value: unknown) => {
+      const snapshot = parseSnapshot(value);
+      if (!snapshot) return;
+      if (snapshot.sourceId === sourceIdRef.current) return;
+      if (snapshot.updatedAt <= lastAppliedAtRef.current) return;
+
+      lastAppliedAtRef.current = snapshot.updatedAt;
+      pendingRemoteSnapshotRef.current = snapshot;
+      managedDispatch({ type: "REPLACE_STATE", state: snapshot.state, origin: "remote" });
+    };
+
+    let channel: BroadcastChannel | null = null;
+    if ("BroadcastChannel" in window) {
+      try {
+        channel = new BroadcastChannel(DEMO_CHANNEL_NAME);
+        channel.onmessage = (event: MessageEvent<unknown>) => receiveSnapshot(event.data);
+        channelRef.current = channel;
+      } catch {
+        channel = null;
+      }
+    }
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== DEMO_STORAGE_KEY || event.newValue === null) return;
+      const snapshot = parseStoredSnapshot(event.newValue);
+      if (snapshot) receiveSnapshot(snapshot);
+    };
+    window.addEventListener("storage", handleStorage);
+
+    const storedSnapshot = readStoredSnapshot();
+    if (storedSnapshot) {
+      lastAppliedAtRef.current = storedSnapshot.updatedAt;
+      managedDispatch({ type: "REPLACE_STATE", state: storedSnapshot.state, origin: "hydrate" });
+    } else {
+      const initialSnapshot: DemoStateSnapshot = {
+        version: DEMO_STORAGE_VERSION,
+        updatedAt: Date.now(),
+        sourceId,
+        state: createInitialDemoState(),
+      };
+      lastAppliedAtRef.current = initialSnapshot.updatedAt;
+      writeStoredSnapshot(initialSnapshot);
+    }
+    hydratedRef.current = true;
+
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      channel?.close();
+      if (channelRef.current === channel) channelRef.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+
+    if (managedState.origin === "remote") {
+      const remoteSnapshot = pendingRemoteSnapshotRef.current;
+      if (remoteSnapshot) writeStoredSnapshot(remoteSnapshot);
+      pendingRemoteSnapshotRef.current = null;
+      return;
+    }
+
+    if (managedState.origin !== "local") return;
+    const sourceId = sourceIdRef.current;
+    if (!sourceId) return;
+
+    const updatedAt = Math.max(Date.now(), lastAppliedAtRef.current + 1);
+    const snapshot: DemoStateSnapshot = {
+      version: DEMO_STORAGE_VERSION,
+      updatedAt,
+      sourceId,
+      state: cloneDemoState(state),
+    };
+    lastAppliedAtRef.current = updatedAt;
+    writeStoredSnapshot(snapshot);
+    channelRef.current?.postMessage(snapshot);
+  }, [managedState.origin, managedState.revision, state]);
+
   const selectedHospital = HOSPITALS.find((item) => item.id === state.selectedHospitalId) ?? null;
   const progress = state.stage === "declined"
     ? FLOW_STAGES.indexOf("hospital-requested")
@@ -464,10 +749,10 @@ export function DemoProvider({ children }: { children: ReactNode }) {
       selectedHospital,
       progress,
       reset: () => dispatch({ type: "RESET" }),
-      transition: (stage, time, actor, title, detail, tone) =>
-        dispatch({ type: "TRANSITION", stage, time, actor, title, detail, tone }),
+      transition: (stage, actor, title, detail, tone) =>
+        dispatch({ type: "TRANSITION", stage, actor, title, detail, tone }),
     }),
-    [state, selectedHospital, progress],
+    [state, dispatch, selectedHospital, progress],
   );
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
