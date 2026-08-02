@@ -39,7 +39,7 @@ const roles: Record<View, RoleMeta> = {
   control: {
     label: "이송조정 상황실",
     short: "상황실",
-    description: "확인된 환자정보로 병원 연락을 조정합니다.",
+    description: "진행을 감시하고 지연·반복 거절 시 연락을 지원합니다.",
     icon: RadioTower,
   },
   hospital: {
@@ -63,8 +63,8 @@ const stageActor: Record<DemoStage, Actor> = {
   "patient-contact": "구급대원",
   assessing: "구급대원",
   "summary-ready": "구급대원",
-  "coordination-requested": "구급대원",
-  "hospital-requested": "이송조정 상황실",
+  "coordination-requested": "이송조정 상황실",
+  "hospital-requested": "구급대원",
   "info-requested": "병원",
   "info-sent": "구급대원",
   declined: "병원",
@@ -83,8 +83,8 @@ const stageEventTitle: Record<DemoStage, string> = {
   "patient-contact": "환자 접촉",
   assessing: "최초 활력징후 확인",
   "summary-ready": "환자 확인본 생성",
-  "coordination-requested": "병원 조정 요청",
-  "hospital-requested": "병원 수용 확인 요청",
+  "coordination-requested": "상황실 지원 요청",
+  "hospital-requested": "병원 수용 문의",
   "info-requested": "추가정보 요청",
   "info-sent": "추가정보 회신",
   declined: "수용 곤란 회신",
@@ -102,7 +102,7 @@ function stageTime(stage: DemoStage, events: DemoEvent[]) {
 }
 
 function noticeCount(view: View, stage: DemoStage) {
-  if (view === "control" && (stage === "coordination-requested" || stage === "declined")) return 1;
+  if (view === "control" && (stage === "coordination-requested" || stage === "hospital-requested" || stage === "declined")) return 1;
   if (view === "hospital" && (stage === "hospital-requested" || stage === "info-sent" || stage === "handoff-sent")) return 1;
   if (view === "mobile" && (stage === "info-requested" || stage === "accepted" || stage === "complete")) return 1;
   return 0;
@@ -118,7 +118,7 @@ function WorkflowBoard({ onOpenRole }: { onOpenRole: (view: View) => void }) {
           <span className={styles.kicker}>단일 시연 사건 · {SCENARIO.id}</span>
           <h2>78세 독거 여성 급성 뇌졸중 의심</h2>
           <p>
-            신고정보는 현장에서 확인되고, 확인본은 상황실 병원 조정과 이송·인계까지 같은 기록으로 이어집니다.
+            신고정보를 현장에서 확인한 뒤 구급대원이 병원에 직접 수용을 문의하고, 진행 상황은 상황실과 병원에 같은 기록으로 이어집니다.
           </p>
         </div>
         <div className={styles.heroFacts}>

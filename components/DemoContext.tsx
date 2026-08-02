@@ -128,7 +128,7 @@ export const STAGE_LABEL: Record<DemoStage, string> = {
   "patient-contact": "환자 접촉",
   assessing: "현장평가 중",
   "summary-ready": "평가 완료",
-  "coordination-requested": "병원 조정 요청",
+  "coordination-requested": "상황실 지원 요청",
   "hospital-requested": "병원 회신 대기",
   "info-requested": "추가정보 요청",
   "info-sent": "추가정보 회신",
@@ -375,6 +375,7 @@ type Action = (
   | { type: "CONFIRM_ASSESSMENT" }
   | { type: "REQUEST_COORDINATION" }
   | { type: "REQUEST_HOSPITAL"; hospitalId: string }
+  | { type: "CALL_HOSPITAL"; hospitalId: string; result?: string }
   | { type: "MARK_HOSPITAL_VIEWED" }
   | { type: "REQUEST_INFO"; fields: string[] }
   | { type: "ANSWER_INFO" }
@@ -473,21 +474,44 @@ function reducer(state: DemoState, action: Action): DemoState {
         {
           time: occurredAt,
           actor: "구급대원",
-          title: "병원 조정 요청",
-          detail: "이송조정 상황실에 구급대원 확인본 전달",
+          title: "상황실 지원 요청",
+          detail: "병원 문의 지원이 필요한 예외 사건 공유",
           tone: "amber",
         },
       );
     case "REQUEST_HOSPITAL": {
-      const hospital = HOSPITALS.find((item) => item.id === action.hospitalId) ?? HOSPITALS[0];
+      const hospital = HOSPITALS.find((item) => item.id === action.hospitalId);
+      const hasActiveRequest = ["hospital-requested", "info-requested", "info-sent", "accepted", "destination-confirmed"].includes(state.stage);
+      if (!hospital || hasActiveRequest || state.declinedHospitalIds.includes(hospital.id)) return state;
       return appendEvent(
-        { ...state, stage: "hospital-requested", selectedHospitalId: action.hospitalId, requestedInfo: [], infoReply: null, hospitalViewed: false },
+        {
+          ...state,
+          stage: "hospital-requested",
+          selectedHospitalId: hospital.id,
+          requestedInfo: [],
+          infoReply: null,
+          hospitalViewed: false,
+          destinationConfirmed: false,
+        },
         {
           time: occurredAt,
-          actor: "이송조정 상황실",
-          title: "병원 수용 확인 요청",
-          detail: `${hospital.name} · 활성 요청 1건`,
+          actor: "구급대원",
+          title: "병원 수용 문의",
+          detail: `${hospital.name} · 순차 문의 1건`,
           tone: "amber",
+        },
+      );
+    }
+    case "CALL_HOSPITAL": {
+      const hospital = HOSPITALS.find((item) => item.id === action.hospitalId);
+      if (!hospital) return state;
+      return appendEvent(
+        state,
+        {
+          time: occurredAt,
+          actor: "구급대원",
+          title: "병원 전화 연결",
+          detail: `${hospital.name} · ${action.result?.trim() || "전화 연결 시도"}`,
         },
       );
     }
@@ -557,6 +581,7 @@ function reducer(state: DemoState, action: Action): DemoState {
       );
     }
     case "CONFIRM_DESTINATION":
+      if (state.stage !== "accepted" || !state.selectedHospitalId) return state;
       return appendEvent(
         { ...state, stage: "destination-confirmed", destinationConfirmed: true },
         {

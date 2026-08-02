@@ -29,11 +29,12 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type CpssValues, type VitalValues } from "./DemoContext";
+import { HOSPITALS, SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type CpssValues, type HospitalOption, type VitalValues } from "./DemoContext";
 import styles from "./MobileApp.module.css";
 
 type Tab = "field" | "patient" | "hospital" | "handoff";
 type VoiceMode = "listening" | "processing" | "review" | null;
+type HospitalCandidateStatus = "available" | "locked" | "pending" | "info" | "accepted" | "declined" | "confirmed";
 
 type VoiceStructuredFields = {
   avpu: string;
@@ -142,6 +143,12 @@ const cpssLabels: Record<keyof CpssValues, { title: string; hint: string }> = {
   speech: { title: "말하기", hint: "문장 반복과 발음 확인" },
 };
 
+const HOSPITAL_CONTEXT: Record<string, string> = {
+  hallym: "CT · 신경과 기관정보 확인",
+  knuh: "CT · 신경과 기관정보 확인",
+  hongcheon: "가까운 거리 · 진료 가능 여부 확인 필요",
+};
+
 function StatusBadge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "teal" | "amber" | "green" | "red" }) {
   return <span className={styles.statusBadge} data-tone={tone}>{children}</span>;
 }
@@ -158,6 +165,7 @@ export default function MobileApp() {
   const [voiceResult, setVoiceResult] = useState<VoiceResult>(FALLBACK_VOICE_RESULT);
   const [transcriptIndex, setTranscriptIndex] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
+  const [callingHospitalId, setCallingHospitalId] = useState<string | null>(null);
   const toastRef = useRef<number | null>(null);
   const timeFor = (...titles: string[]) =>
     [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
@@ -165,6 +173,7 @@ export default function MobileApp() {
   const voiceModeRef = useRef<VoiceMode>(null);
   const voiceRequestRef = useRef<AbortController | null>(null);
   const voiceRequestIdRef = useRef(0);
+  const callingHospital = HOSPITALS.find((hospital) => hospital.id === callingHospitalId) ?? null;
 
   const notify = (message: string) => {
     setToast(message);
@@ -506,23 +515,50 @@ export default function MobileApp() {
       </section>
 
       {state.stage === "summary-ready" && (
-        <button className={styles.fullAction} onClick={() => { dispatch({ type: "REQUEST_COORDINATION" }); setTab("hospital"); }}>
-          <RadioTower size={19} /> 상황실에 병원 조정 요청
+        <button className={styles.fullAction} onClick={() => setTab("hospital")}>
+          <Hospital size={19} /> 병원 후보 확인
         </button>
       )}
     </>
   );
 
   const renderHospitalStatus = () => {
+    const activeRequest = ["hospital-requested", "info-requested", "info-sent"].includes(state.stage);
+    const canStartRequest = ["summary-ready", "coordination-requested", "declined"].includes(state.stage);
+
+    const requestEventFor = (hospital: HospitalOption) => [...state.events]
+      .reverse()
+      .find((event) => event.title === "병원 수용 문의" && event.detail.includes(hospital.name));
+
+    const declineReasonFor = (hospital: HospitalOption) => {
+      const event = [...state.events]
+        .reverse()
+        .find((item) => item.title === "수용 곤란 회신" && item.detail.includes(hospital.name));
+      if (!event) return "병원 회신 사유를 확인해 주세요.";
+      return event.detail.split("·").slice(1).join("·").trim() || "병원 회신 사유를 확인해 주세요.";
+    };
+
+    const candidateStatus = (hospital: HospitalOption): HospitalCandidateStatus => {
+      const isSelected = state.selectedHospitalId === hospital.id;
+      if (isSelected && state.destinationConfirmed) return "confirmed";
+      if (state.declinedHospitalIds.includes(hospital.id)) return "declined";
+      if (isSelected && state.stage === "accepted") return "accepted";
+      if (isSelected && state.stage === "info-requested") return "info";
+      if (isSelected && ["hospital-requested", "info-sent"].includes(state.stage)) return "pending";
+      if (activeRequest || state.stage === "accepted" || state.destinationConfirmed) return "locked";
+      return "available";
+    };
+
     const status = (() => {
-      if (state.stage === "coordination-requested") return { icon: RadioTower, title: "상황실이 요청을 확인하고 있습니다", detail: "환자 확인본은 읽기 전용으로 공유되었습니다.", tone: "amber" as const };
-      if (state.stage === "hospital-requested") return { icon: Hospital, title: `${selectedHospital?.name ?? "병원"} 회신 대기`, detail: "한 번에 한 병원에만 활성 요청을 전송했습니다.", tone: "amber" as const };
+      if (state.stage === "summary-ready") return { icon: Hospital, title: "문의할 병원 한 곳을 선택하세요", detail: "기관정보와 예상 이동시간을 참고해 구급대원이 직접 문의합니다.", tone: "teal" as const };
+      if (state.stage === "coordination-requested") return { icon: RadioTower, title: "상황실과 지원 요청을 공유했습니다", detail: "병원 선택과 문의는 현장 구급대원이 계속 진행합니다.", tone: "amber" as const };
+      if (state.stage === "hospital-requested") return { icon: Hospital, title: `${selectedHospital?.name ?? "병원"} 회신 대기`, detail: "현재 문의가 끝난 뒤에만 다음 병원에 문의할 수 있습니다.", tone: "amber" as const };
       if (state.stage === "info-requested") return { icon: FileText, title: "병원이 추가정보를 요청했습니다", detail: state.requestedInfo.join(" · "), tone: "amber" as const };
-      if (state.stage === "info-sent") return { icon: Send, title: "추가정보를 전달했습니다", detail: state.infoReply ?? "미상 항목 회신", tone: "teal" as const };
-      if (state.stage === "declined") return { icon: RefreshCw, title: "상황실이 다음 병원을 확인 중입니다", detail: "이전 요청과 수용 곤란 사유는 기록에 남습니다.", tone: "red" as const };
-      if (state.stage === "accepted") return { icon: CheckCircle2, title: "병원에서 수용 가능으로 회신했습니다", detail: "구급대원이 이송지를 확인해야 출발할 수 있습니다.", tone: "green" as const };
+      if (state.stage === "info-sent") return { icon: Send, title: "추가정보를 전달했습니다", detail: "병원 회신을 기다리는 동안 전화로 확인할 수 있습니다.", tone: "teal" as const };
+      if (state.stage === "declined") return { icon: RefreshCw, title: "수용 곤란 회신을 확인했습니다", detail: "사유는 기록에 남았습니다. 다음 후보 한 곳을 선택하세요.", tone: "red" as const };
+      if (state.stage === "accepted") return { icon: CheckCircle2, title: "수용 가능 회신이 도착했습니다", detail: "환자 상태와 이동 여건을 다시 확인한 뒤 이송지를 확정하세요.", tone: "green" as const };
       if (state.stage === "destination-confirmed") return { icon: Route, title: "이송지를 확인했습니다", detail: "현장 출발 버튼을 누르면 출발시각이 기록됩니다.", tone: "teal" as const };
-      return { icon: RadioTower, title: "병원 조정 요청 전", detail: "환자 확인본을 만든 뒤 상황실로 요청합니다.", tone: "slate" as const };
+      return { icon: Hospital, title: "병원 진행을 확인하세요", detail: "문의·회신·이송지 확정 기록을 한곳에서 확인합니다.", tone: "slate" as const };
     })();
     const Icon = status.icon;
 
@@ -532,28 +568,111 @@ export default function MobileApp() {
           <span><Icon size={26} /></span><div><small>현재 진행</small><h1>{status.title}</h1><p>{status.detail}</p></div>
         </section>
 
-        {selectedHospital && (
-          <section className={styles.destinationCard}>
-            <div className={styles.sectionTitle}><div><Hospital size={18} /><strong>확인 요청 병원</strong></div><StatusBadge tone={state.stage === "accepted" || state.stage === "destination-confirmed" ? "green" : "amber"}>{state.stage === "accepted" || state.stage === "destination-confirmed" ? "수용 가능" : "확인 중"}</StatusBadge></div>
-            <h2>{selectedHospital.name}</h2>
-            <p>{selectedHospital.location}</p>
-            <div><span><Route size={15} /> {selectedHospital.distance}</span><span><Clock3 size={15} /> 예상 {selectedHospital.eta}</span></div>
-          </section>
-        )}
+        <section className={styles.coordinationSteps} aria-label="병원 문의 순서">
+          <div data-active={canStartRequest}><span>1</span><small>한 곳 문의</small></div>
+          <i />
+          <div data-active={activeRequest || state.stage === "accepted"}><span>2</span><small>회신 확인</small></div>
+          <i />
+          <div data-active={state.destinationConfirmed}><span>3</span><small>이송지 확정</small></div>
+        </section>
 
-        {state.stage === "info-requested" && (
-          <section className={styles.infoRequestCard}>
-            <span>병원 요청 항목</span>
-            <strong>{state.requestedInfo.join(" · ")}</strong>
-            <p>약 봉투와 환자·이웃 진술로 확인했으나 복용 여부와 마지막 복용시각을 확인할 수 없습니다.</p>
-            <button onClick={() => dispatch({ type: "ANSWER_INFO" })}><Send size={18} /> 미상으로 회신</button>
-          </section>
-        )}
+        <section className={styles.candidateSection}>
+          <div className={styles.candidateHeading}>
+            <div><span>현 위치 기준</span><h2>병원 후보 {HOSPITALS.length}곳</h2></div>
+            <StatusBadge tone={activeRequest ? "amber" : "teal"}>{activeRequest ? "1곳 문의 중" : "순차 문의"}</StatusBadge>
+          </div>
+          <p className={styles.candidateRule}><Info size={14} /> 거리·예상 이동시간·기관정보는 참고이며 수용 가능을 뜻하지 않습니다. 한 번에 한 병원씩 문의합니다.</p>
 
-        {state.stage === "accepted" && (
-          <button className={styles.fullAction} onClick={() => dispatch({ type: "CONFIRM_DESTINATION" })}>
-            <CheckCircle2 size={19} /> 이송지 확인
-          </button>
+          <div className={styles.candidateList}>
+            {HOSPITALS.map((hospital) => {
+              const candidateState = candidateStatus(hospital);
+              const requestEvent = requestEventFor(hospital);
+              const statusLabel: Record<HospitalCandidateStatus, string> = {
+                available: "문의 가능",
+                locked: "현재 문의 후",
+                pending: "회신 대기",
+                info: "추가 확인",
+                accepted: "수용 가능",
+                declined: "수용 곤란",
+                confirmed: "이송지 확정",
+              };
+
+              return (
+                <article className={styles.hospitalCandidate} data-status={candidateState} key={hospital.id}>
+                  <div className={styles.candidateTop}>
+                    <span className={styles.candidateOrder}><Hospital size={14} /></span>
+                    <div className={styles.candidateName}>
+                      <h3>{hospital.name}</h3>
+                      <p><MapPin size={12} /> {hospital.location}</p>
+                    </div>
+                    <span className={styles.candidateStatus} data-status={candidateState}>{statusLabel[candidateState]}</span>
+                  </div>
+
+                  <div className={styles.candidateTravel}>
+                    <span><Route size={15} /><small>거리</small><strong>{hospital.distance}</strong></span>
+                    <span><Clock3 size={15} /><small>예상 이동</small><strong>{hospital.eta}</strong></span>
+                  </div>
+
+                  <div className={styles.candidateReferences}>
+                    {hospital.reference.map((item) => <span key={item}>{item}</span>)}
+                    <small>{HOSPITAL_CONTEXT[hospital.id]}</small>
+                  </div>
+
+                  {candidateState === "pending" && (
+                    <div className={styles.responseStrip} data-tone="amber"><Clock3 size={16} /><span><strong>병원 회신 대기</strong><small>{requestEvent?.time ?? "방금"} 문의 · 열람 여부와 회신을 확인합니다.</small></span></div>
+                  )}
+                  {candidateState === "info" && (
+                    <div className={styles.responseStrip} data-tone="amber"><FileText size={16} /><span><strong>{state.requestedInfo.join(" · ") || "추가정보"} 요청</strong><small>확인할 수 없으면 빈칸 대신 ‘미상’으로 회신합니다.</small></span></div>
+                  )}
+                  {candidateState === "declined" && (
+                    <div className={styles.responseStrip} data-tone="red"><AlertTriangle size={16} /><span><strong>수용 곤란 사유</strong><small>{declineReasonFor(hospital)}</small></span></div>
+                  )}
+                  {candidateState === "accepted" && (
+                    <div className={styles.responseStrip} data-tone="green"><CheckCircle2 size={16} /><span><strong>수용 가능 회신</strong><small>이송 출발 전 구급대원이 최종 확정합니다.</small></span></div>
+                  )}
+                  {candidateState === "confirmed" && (
+                    <div className={styles.responseStrip} data-tone="green"><Navigation size={16} /><span><strong>최종 이송병원</strong><small>이송 시작 전 환자 상태와 경로를 다시 확인하세요.</small></span></div>
+                  )}
+
+                  <div className={styles.candidateActions}>
+                    {candidateState === "available" && canStartRequest && (
+                      <button className={styles.candidatePrimary} onClick={() => { dispatch({ type: "REQUEST_HOSPITAL", hospitalId: hospital.id }); notify(`${hospital.name}에 수용 문의를 보냈습니다.`); }}>
+                        <Send size={16} /> 이 병원에 수용 문의
+                      </button>
+                    )}
+                    {["pending", "info", "accepted", "declined", "confirmed"].includes(candidateState) && (
+                      <button className={styles.candidateSecondary} onClick={() => setCallingHospitalId(hospital.id)}>
+                        <Phone size={16} /> 수용 문의 전화
+                      </button>
+                    )}
+                    {candidateState === "info" && (
+                      <button className={styles.candidatePrimary} data-tone="amber" onClick={() => dispatch({ type: "ANSWER_INFO" })}>
+                        <Send size={16} /> 미상 항목 회신
+                      </button>
+                    )}
+                    {candidateState === "accepted" && (
+                      <button className={styles.candidatePrimary} data-tone="green" onClick={() => dispatch({ type: "CONFIRM_DESTINATION" })}>
+                        <CheckCircle2 size={16} /> 이송병원으로 확정
+                      </button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+
+          {(state.stage === "summary-ready" || state.stage === "declined") && (
+            <button className={styles.supportAction} onClick={() => dispatch({ type: "REQUEST_COORDINATION" })}>
+              <RadioTower size={16} /> 상황실 연락 지원 요청
+            </button>
+          )}
+        </section>
+
+        {state.destinationConfirmed && selectedHospital && (
+          <section className={styles.confirmedDestination}>
+            <span><Navigation size={20} /></span>
+            <div><small>최종 이송병원</small><strong>{selectedHospital.name}</strong><p>예상 {selectedHospital.eta} · {selectedHospital.distance}</p></div>
+          </section>
         )}
 
         {state.stage === "destination-confirmed" && (
@@ -564,7 +683,7 @@ export default function MobileApp() {
 
         <section className={styles.mobileTimeline}>
           <div className={styles.sectionTitle}><div><Clock3 size={18} /><strong>요청 진행 기록</strong></div></div>
-          {[...state.events].reverse().filter((event) => ["병원", "이송조정 상황실", "구급대원"].includes(event.actor)).slice(0, 6).map((event) => (
+          {[...state.events].reverse().filter((event) => ["병원", "이송조정 상황실", "구급대원"].includes(event.actor)).slice(0, 5).map((event) => (
             <div className={styles.timelineEvent} key={event.id}><time>{event.time}</time><i data-tone={event.tone ?? "neutral"} /><span><strong>{event.title}</strong><small>{event.detail}</small></span></div>
           ))}
         </section>
@@ -667,6 +786,34 @@ export default function MobileApp() {
         {phoneHeader}
         {body}
         {toast && <div className={styles.toast} role="status"><CheckCircle2 size={18} /> {toast}</div>}
+
+        {callingHospital && (
+          <div className={styles.callOverlay} role="dialog" aria-modal="true" aria-label={`${callingHospital.name} 전화 연결`}>
+            <section className={styles.callSheet}>
+              <button className={styles.callClose} aria-label="전화 연결 닫기" onClick={() => setCallingHospitalId(null)}><X size={18} /></button>
+              <span className={styles.callIcon}><Phone size={24} /></span>
+              <small>수용 문의 전화</small>
+              <h2>{callingHospital.name}</h2>
+              <div className={styles.callSummary}>
+                <span><strong>{SCENARIO.patient}</strong><small>{SCENARIO.chiefComplaint}</small></span>
+                <span><strong>LNT {SCENARIO.lnt}</strong><small>CPSS 얼굴·팔 우측, 말 어눌함</small></span>
+              </div>
+              <p className={styles.callHint}><AlertTriangle size={15} /> 전화 연결만으로 수용 확정이 아닙니다. 병원의 수용 가능 회신을 별도로 확인하세요.</p>
+              <div className={styles.callResults}>
+                <button onClick={() => {
+                  dispatch({ type: "CALL_HOSPITAL", hospitalId: callingHospital.id, result: "응답 없음" });
+                  setCallingHospitalId(null);
+                  notify("응답 없음으로 통화 기록을 남겼습니다.");
+                }}>응답 없음</button>
+                <button onClick={() => {
+                  dispatch({ type: "CALL_HOSPITAL", hospitalId: callingHospital.id, result: "연결됨 · 수용 여부 미확정" });
+                  setCallingHospitalId(null);
+                  notify("연결됨으로 통화 기록을 남겼습니다.");
+                }}><Phone size={17} /> 연결됨</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {voiceMode && (
           <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록" aria-busy={voiceMode === "processing"}>

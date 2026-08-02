@@ -19,8 +19,6 @@ import {
   Phone,
   RadioTower,
   RefreshCw,
-  Route,
-  Send,
   ShieldCheck,
   UserRound,
 } from "lucide-react";
@@ -34,8 +32,7 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 }
 
 export default function ControlConsole() {
-  const { state, dispatch, selectedHospital } = useDemo();
-  const [candidate, setCandidate] = useState("hallym");
+  const { state, selectedHospital } = useDemo();
   const [hospitalOptions, setHospitalOptions] = useState<HospitalOption[]>(HOSPITALS);
   const [directoryState, setDirectoryState] = useState<"idle" | "ready" | "fallback">("idle");
   const [toast, setToast] = useState<string | null>(null);
@@ -68,12 +65,9 @@ export default function ControlConsole() {
     return () => controller.abort();
   }, [hasRequest]);
 
-  const availableCandidate = hospitalOptions.find((hospital) => !state.declinedHospitalIds.includes(hospital.id));
-  const effectiveCandidateId = state.declinedHospitalIds.includes(candidate) ? (availableCandidate?.id ?? candidate) : candidate;
-  const activeCandidate = hospitalOptions.find((hospital) => hospital.id === effectiveCandidateId) ?? hospitalOptions[0] ?? HOSPITALS[0];
   const requestState = useMemo(() => {
-    if (state.stage === "coordination-requested") return { label: "병원 선택 필요", tone: "amber" as const, detail: "환자 확인본을 읽고 한 병원에 요청하세요." };
-    if (state.stage === "declined") return { label: "다음 병원 확인", tone: "red" as const, detail: "이전 수용 곤란 기록을 유지한 채 다음 병원을 선택하세요." };
+    if (state.stage === "coordination-requested") return { label: "연락 지원 요청", tone: "amber" as const, detail: "구급대가 병원 문의 지원을 요청했습니다. 임상 판단이나 이송지 선택 없이 연락을 지원합니다." };
+    if (state.stage === "declined") return { label: "재문의 지원", tone: "red" as const, detail: "구급대가 수용 곤란 사유를 확인하고 다음 병원을 검토합니다." };
     if (state.stage === "hospital-requested") return { label: "병원 회신 대기", tone: "amber" as const, detail: "요청과 병원 열람 상태가 자동 동기화됩니다." };
     if (state.stage === "info-requested") return { label: "추가정보 요청", tone: "amber" as const, detail: "병원이 요청한 항목을 구급대 화면에도 즉시 전달했습니다." };
     if (state.stage === "info-sent") return { label: "추가정보 전달됨", tone: "teal" as const, detail: "구급대 답변이 병원 화면에 동기화되었습니다." };
@@ -83,7 +77,7 @@ export default function ControlConsole() {
     if (state.stage === "hospital-arrived") return { label: "병원 도착", tone: "teal" as const, detail: "구급대가 병원 도착을 확인했습니다." };
     if (state.stage === "handoff-sent") return { label: "인수 확인 대기", tone: "amber" as const, detail: "병원 담당자의 환자 인수 확인을 기다립니다." };
     if (state.stage === "complete") return { label: "조정 종료", tone: "green" as const, detail: "병원이 환자 인수를 확인했습니다." };
-    return { label: "요청 대기", tone: "slate" as const, detail: "구급대 평가 완료 후 조정 요청이 표시됩니다." };
+    return { label: "요청 대기", tone: "slate" as const, detail: "구급대가 병원 문의를 시작하면 진행 상태가 표시됩니다." };
   }, [state.stage]);
 
   const notify = (message: string) => {
@@ -100,7 +94,7 @@ export default function ControlConsole() {
         </div>
         <nav aria-label="상황실 업무 상태">
           <button className={!hasRequest ? styles.navActive : ""}>요청 대기</button>
-          <button className={hasRequest && !stageAtLeast(state.stage, "transporting") ? styles.navActive : ""}>병원 조정 {hasRequest && !stageAtLeast(state.stage, "transporting") ? <b>1</b> : null}</button>
+          <button className={hasRequest && !stageAtLeast(state.stage, "transporting") ? styles.navActive : ""}>이송 지원 {hasRequest && !stageAtLeast(state.stage, "transporting") ? <b>1</b> : null}</button>
           <button className={state.stage === "transporting" || state.stage === "hospital-arrived" || state.stage === "handoff-sent" ? styles.navActive : ""}>이송·인계</button>
           <button className={state.stage === "complete" ? styles.navActive : ""}>종료</button>
         </nav>
@@ -114,7 +108,7 @@ export default function ControlConsole() {
       <div className={styles.workspace}>
         <aside className={styles.queue}>
           <div className={styles.queueTitle}>
-            <div><span>조정 요청</span><h2>진행 사건 <b>{hasRequest ? 1 : 0}</b></h2></div>
+            <div><span>공유 사건</span><h2>진행 사건 <b>{hasRequest ? 1 : 0}</b></h2></div>
             <button aria-label="요청 새로고침" onClick={() => notify("최신 조정 상태입니다.")}><RefreshCw size={17} /></button>
           </div>
           {hasRequest ? (
@@ -124,7 +118,7 @@ export default function ControlConsole() {
               <ChevronRight size={18} />
             </button>
           ) : (
-            <div className={styles.queueEmpty}><Headphones size={23} /><strong>새 조정 요청이 없습니다</strong><span>구급대가 확인본을 전송하면 여기에 표시됩니다.</span></div>
+            <div className={styles.queueEmpty}><Headphones size={23} /><strong>지원 중인 사건이 없습니다</strong><span>구급대가 병원 문의를 시작하면 여기에 표시됩니다.</span></div>
           )}
           <div className={styles.queueGuide}><span><i data-tone="amber" /> 확인 필요</span><span><i data-tone="teal" /> 진행 중</span><span><i data-tone="green" /> 완료</span></div>
         </aside>
@@ -133,15 +127,15 @@ export default function ControlConsole() {
           {!hasRequest ? (
             <div className={styles.emptyCase}>
               <span><RadioTower size={30} /></span>
-              <h1>병원 조정 요청을 기다립니다</h1>
-              <p>상황실은 환자 임상정보를 작성하지 않습니다.<br />구급대원이 확인한 환자정보가 도착하면 병원 연락만 조정합니다.</p>
+              <h1>구급대 병원 문의를 기다립니다</h1>
+              <p>상황실은 환자 임상정보나 이송지를 결정하지 않습니다.<br />진행 지연과 반복 거절을 감시하고 필요할 때 연락을 지원합니다.</p>
               <div><ShieldCheck size={18} /><span><strong>현재 구급대 상태</strong><small>{STAGE_LABEL[state.stage]}</small></span></div>
             </div>
           ) : (
             <>
               <header className={styles.caseHeader}>
-                <div><span className={styles.kicker}>중증환자 병원 조정</span><div><h1>{SCENARIO.id}</h1><Badge tone={requestState.tone}>{requestState.label}</Badge></div><p><Ambulance size={15} /> 홍천소방서 구급1대 <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 최근 갱신 {state.events.at(-1)?.time}</p></div>
-                <div className={styles.owner}><Headphones size={18} /><span><small>병원 연락 담당</small><strong>상황실 박○○</strong></span></div>
+                <div><span className={styles.kicker}>중증환자 이송 지원</span><div><h1>{SCENARIO.id}</h1><Badge tone={requestState.tone}>{requestState.label}</Badge></div><p><Ambulance size={15} /> 홍천소방서 구급1대 <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 최근 갱신 {state.events.at(-1)?.time}</p></div>
+                <div className={styles.owner}><Headphones size={18} /><span><small>예외 연락 지원</small><strong>상황실 박○○</strong></span></div>
               </header>
 
               <div className={styles.caseScroll}>
@@ -167,18 +161,18 @@ export default function ControlConsole() {
                 </section>
 
                 <section className={styles.candidates}>
-                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>병원 후보</h2></div><span>{directoryState === "idle" ? "기관정보 조회 중" : directoryState === "fallback" ? "로컬 예비정보" : "거리·ETA·기관정보 참고"}</span></div>
+                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>구급대 표시 병원 후보</h2></div><span>{directoryState === "idle" ? "기관정보 조회 중" : directoryState === "fallback" ? "로컬 예비정보" : "거리·ETA·기관정보 참고"}</span></div>
                   <div className={styles.referenceNotice}><Info size={16} /><span>가까운 순이 추천 순위는 아닙니다. 공공정보만으로 수용 가능 여부를 판단하지 않습니다.</span></div>
                   <div className={styles.candidateList}>
                     {hospitalOptions.map((hospital) => {
                       const declined = state.declinedHospitalIds.includes(hospital.id);
                       const active = state.selectedHospitalId === hospital.id;
                       return (
-                        <button className={`${styles.candidateCard} ${effectiveCandidateId === hospital.id ? styles.candidateSelected : ""}`} onClick={() => setCandidate(hospital.id)} disabled={declined || (state.stage !== "coordination-requested" && state.stage !== "declined")} key={hospital.id}>
-                          <span className={styles.radio}>{effectiveCandidateId === hospital.id ? <Check size={14} /> : null}</span>
+                        <div className={`${styles.candidateCard} ${active ? styles.candidateSelected : ""}`} key={hospital.id}>
+                          <span className={styles.radio}>{active ? <Check size={14} /> : null}</span>
                           <div><strong>{hospital.name}</strong><small>{hospital.type} · {hospital.location}</small><p>{hospital.reference.map((item) => <span key={item}>{item}</span>)}</p></div>
                           <div className={styles.routeInfo}><strong>{hospital.eta}</strong><span>{hospital.distance}</span>{declined ? <Badge tone="red">수용 곤란</Badge> : active ? <Badge tone="amber">요청 중</Badge> : <Badge>수용 확인 전</Badge>}</div>
-                        </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -207,8 +201,8 @@ export default function ControlConsole() {
 
           {(state.stage === "coordination-requested" || state.stage === "declined") && (
             <div className={styles.selectedRequest}>
-              <span>선택 병원</span><strong>{activeCandidate.name}</strong><p><Route size={15} /> {activeCandidate.distance} · 예상 {activeCandidate.eta}</p>
-              <button onClick={() => dispatch({ type: "REQUEST_HOSPITAL", hospitalId: effectiveCandidateId })}><Send size={18} /> 선택 병원에 수용 확인 요청</button>
+              <span>구급대 진행</span><strong>{state.stage === "declined" ? "다음 병원 검토 중" : "연락 지원 요청 수신"}</strong><p>병원 선택과 수용 문의 발송은 구급대 모바일에서 수행합니다.</p>
+              <button onClick={() => notify("구급대 연락 지원을 시작합니다.")}><Phone size={18} /> 구급대 연락 지원</button>
             </div>
           )}
 
@@ -238,7 +232,7 @@ export default function ControlConsole() {
 
           <div className={styles.boundary}>
             <span><ShieldCheck size={15} /><strong>상황실 역할 범위</strong></span>
-            <p>환자정보를 수정하거나 진단하지 않고 병원 요청·회신과 예외 연락만 조정합니다.</p>
+            <p>환자정보·임상 판단·이송지를 대신 결정하지 않고 지연·반복 거절 등 예외 상황의 연락을 지원합니다.</p>
           </div>
         </aside>
       </div>

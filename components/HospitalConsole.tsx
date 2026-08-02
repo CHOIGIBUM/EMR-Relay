@@ -17,7 +17,6 @@ import {
   MapPin,
   MessageSquareText,
   Navigation,
-  Phone,
   Send,
   ShieldCheck,
   Stethoscope,
@@ -52,7 +51,7 @@ export default function HospitalConsole() {
     if (state.stage === "hospital-requested") return { label: "검토 필요", tone: "amber" as const, detail: "구급대원 확인본을 검토하고 회신하세요." };
     if (state.stage === "info-requested") return { label: "추가정보 대기", tone: "amber" as const, detail: "요청 항목이 구급대에 전달되었습니다." };
     if (state.stage === "info-sent") return { label: "추가정보 도착", tone: "teal" as const, detail: "구급대 답변을 반영해 다시 검토하세요." };
-    if (state.stage === "declined") return { label: "수용 곤란 회신", tone: "red" as const, detail: "상황실에서 다음 병원을 확인 중입니다." };
+    if (state.stage === "declined") return { label: "수용 곤란 회신", tone: "red" as const, detail: "구급대가 사유를 확인하고 다음 병원을 검토합니다." };
     if (state.stage === "accepted" || state.stage === "destination-confirmed") return { label: "수용 확정", tone: "green" as const, detail: "구급대의 이송지 확인을 기다립니다." };
     if (state.stage === "transporting") return { label: "환자 이송 중", tone: "teal" as const, detail: "ETA와 재평가 정보를 확인하세요." };
     if (state.stage === "hospital-arrived") return { label: "병원 도착", tone: "teal" as const, detail: "구급대 최종 인계를 기다립니다." };
@@ -100,7 +99,7 @@ export default function HospitalConsole() {
               <ChevronRight size={18} />
             </button>
           ) : (
-            <div className={styles.queueEmpty}><Hospital size={23} /><strong>새 요청이 없습니다</strong><span>상황실이 수용 확인을 요청하면 표시됩니다.</span></div>
+            <div className={styles.queueEmpty}><Hospital size={23} /><strong>새 요청이 없습니다</strong><span>구급대가 수용 확인을 요청하면 표시됩니다.</span></div>
           )}
           <div className={styles.queueRule}><ShieldCheck size={16} /><span><strong>수용 여부는 병원이 직접 회신</strong><small>기관정보나 AI가 대신 판단하지 않습니다.</small></span></div>
         </aside>
@@ -115,7 +114,7 @@ export default function HospitalConsole() {
           ) : (
             <>
               <header className={styles.caseHeader}>
-                <div><span>수용 확인 요청</span><div><h1>{SCENARIO.id}</h1><Badge tone={status.tone}>{status.label}</Badge></div><p><Ambulance size={15} /> 홍천소방서 구급1대 <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 요청 {timeFor("병원 수용 확인 요청")}</p></div>
+                <div><span>수용 문의</span><div><h1>{SCENARIO.id}</h1><Badge tone={status.tone}>{status.label}</Badge></div><p><Ambulance size={15} /> 홍천소방서 구급1대 <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 요청 {timeFor("병원 수용 문의")}</p></div>
                 <div className={styles.eta}><span>예상 도착</span><strong>{selectedHospital?.eta ?? "35분"}</strong><small>{state.stage === "transporting" ? "이송 중" : "현장 대기"}</small></div>
               </header>
 
@@ -200,11 +199,11 @@ export default function HospitalConsole() {
           )}
 
           {(state.stage === "accepted" || state.stage === "destination-confirmed") && (
-            <div className={styles.acceptedAction}><CheckCircle2 size={25} /><strong>수용 가능 회신 완료</strong><p>응급실 구급차 출입구<br />도착 전 연락 요청</p><Badge tone="green">상황실·구급대 전달됨</Badge></div>
+            <div className={styles.acceptedAction}><CheckCircle2 size={25} /><strong>수용 가능 회신 완료</strong><p>응급실 구급차 출입구<br />도착 전 연락 요청</p><Badge tone="green">구급대 전달 · 상황실 공유</Badge></div>
           )}
 
           {(state.stage === "transporting" || state.stage === "hospital-arrived") && (
-            <div className={styles.transportAction}><Navigation size={25} /><strong>{STAGE_LABEL[state.stage]}</strong><p>ETA {selectedHospital?.eta}<br />최근 갱신 {state.reassessmentSaved ? timeFor("이송 중 재평가") : timeFor("이송 시작")}</p><button><Phone size={16} /> 구급대 전화</button></div>
+            <div className={styles.transportAction}><Navigation size={25} /><strong>{STAGE_LABEL[state.stage]}</strong><p>ETA {selectedHospital?.eta}<br />최근 갱신 {state.reassessmentSaved ? timeFor("이송 중 재평가") : timeFor("이송 시작")}</p></div>
           )}
 
           {state.stage === "handoff-sent" && (
@@ -247,7 +246,7 @@ export default function HospitalConsole() {
             )}
             {modal === "decline" && (
               <>
-                <span className={`${styles.modalIcon} ${styles.declineIcon}`}><AlertCircle size={25} /></span><h2>수용 곤란 사유</h2><p>상황실이 다음 병원에 연락할 수 있도록 사유를 남깁니다.</p>
+                <span className={`${styles.modalIcon} ${styles.declineIcon}`}><AlertCircle size={25} /></span><h2>수용 곤란 사유</h2><p>구급대가 다음 병원을 검토할 수 있도록 사유를 남깁니다.</p>
                 <div className={styles.declineChoices}>{["현재 진료 여력 부족", "관련 진료과 대응 곤란", "장비·시설 사용 곤란", "기타"].map((reason) => <button className={declineReason === reason ? styles.declineSelected : ""} onClick={() => setDeclineReason(reason)} key={reason}>{declineReason === reason ? <Check size={15} /> : null}{reason}</button>)}</div>
                 <button className={`${styles.modalPrimary} ${styles.modalDanger}`} onClick={() => { dispatch({ type: "DECLINE", reason: declineReason }); setModal(null); }}><X size={18} /> 수용 곤란 회신</button>
               </>
