@@ -237,17 +237,17 @@ Lambda는 Node.js 22, arm64, 512 MB, 30초로 구성했다. DynamoDB는 on-deman
 
 Cloud seed는 배포된 Lambda에 API Gateway 형식의 역할 claim을 넣어 workflow와 권한 분기를 검증한다. 따라서 Cognito Hosted UI의 실제 브라우저 로그인 확인을 대체하지 않는다. 또한 자동 E2E는 실제 마이크 장치를 재현하지 않는다. 배포 사이트의 Chrome/Edge에서 로그인하고 마이크 권한을 허용한 뒤 PTT 시작·중앙 실시간 문장·버튼 해제 후 최종 문장·검토 화면까지 마지막 수동 인수 테스트를 해야 한다.
 
-## 8. 남은 배포 제약
+## 8. 브라우저 지도 설정
 
 ### Kakao JavaScript 지도 도메인
 
-Kakao Mobility REST 길찾기는 서버에서 실제 호출되고 있다. 그러나 브라우저 Kakao Map JavaScript SDK는 Kakao Developers 콘솔에 아래 도메인을 등록해야 한다.
+Kakao Mobility REST 길찾기는 서버에서 실제 호출된다. 브라우저 Kakao Map JavaScript SDK도 Kakao Developers 콘솔의 JavaScript 키에 아래 배포 도메인을 등록했다.
 
 ```text
 https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site
 ```
 
-현재 콘솔 로그인 세션이 없어 이 등록은 완료하지 못했다. 등록 전에는 병원 목록·거리·ETA·길찾기 링크는 작동하지만 지도 패널은 fallback 안내를 표시할 수 있다. 프론트 배포 환경에는 `NEXT_PUBLIC_KAKAO_MAP_JAVASCRIPT_KEY`만 주입하며 Admin key는 사용하지 않는다.
+등록 시각은 2026-08-03 23:03 KST이다. 프론트에는 도메인 제한이 적용된 JavaScript 키만 포함하며, Kakao REST 키와 Admin 키는 AWS Secrets Manager에만 보관한다.
 
 ## 9. HealthLake 비용과 종료 계획
 
