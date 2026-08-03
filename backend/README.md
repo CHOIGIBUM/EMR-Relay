@@ -100,7 +100,7 @@ npm run sam:build
 
 응답은 프론트엔드의 `VoiceProposalResponse` 계약과 동일합니다. `pending_review`는 항상 `true`이며 `proposed_updates[].source`, `fact_status`, `warnings`를 모바일 HITL 카드에 표시합니다. DynamoDB 내부 변경안 상태는 `PENDING`입니다.
 
-현재 AWS 계정의 Bedrock 호출이 `INVALID_PAYMENT_INSTRUMENT`로 거절되면 API는 `503 BEDROCK_BILLING_NOT_READY`를 반환합니다. 프론트엔드에서 `NEXT_PUBLIC_EMS_ALLOW_LOCAL_FALLBACK=true`를 설정하면 이 경우 준비된 로컬 시연 응답으로 전환할 수 있습니다.
+현재 AWS 계정의 Bedrock 호출이 결제수단 또는 Anthropic 모델 사용 등록 문제로 거절되면 API는 각각 `503 BEDROCK_BILLING_NOT_READY` 또는 `503 BEDROCK_MODEL_ACCESS_NOT_READY`를 반환합니다. 프론트엔드에서 `NEXT_PUBLIC_EMS_ALLOW_LOCAL_FALLBACK=true`를 설정하면 이 경우 준비된 로컬 시연 응답으로 전환할 수 있습니다.
 
 ### `GET /hospitals?case_id=GW-CARDIO-050&lat=37.748&lng=127.849`
 

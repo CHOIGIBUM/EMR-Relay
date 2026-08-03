@@ -322,6 +322,16 @@ export async function handler(
     if (errorMessage.includes("INVALID_PAYMENT_INSTRUMENT") || /payment instrument/i.test(errorMessage)) {
       return errorResponse(503, "BEDROCK_BILLING_NOT_READY", "Bedrock 결제 수단 확인이 필요해 AI 변경안을 생성할 수 없습니다. 로컬 시연 모드를 사용하세요.");
     }
+    if (
+      errorName === "AccessDeniedException"
+      && /model access|marketplace|subscription/i.test(errorMessage)
+    ) {
+      return errorResponse(
+        503,
+        "BEDROCK_MODEL_ACCESS_NOT_READY",
+        "Anthropic 모델 사용 등록이 완료되지 않아 AI 변경안을 생성할 수 없습니다. AWS 계정 관리자가 모델 접근 및 결제 설정을 확인해야 합니다.",
+      );
+    }
     if (["ThrottlingException", "ServiceUnavailableException", "ModelNotReadyException"].includes(errorName)) {
       return errorResponse(503, "AGENT_TEMPORARILY_UNAVAILABLE", "AI 변경안 생성이 지연되고 있습니다. 잠시 후 다시 시도하세요.");
     }

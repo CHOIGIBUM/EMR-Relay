@@ -74,4 +74,4 @@ AWS API가 준비되면 `.env.local`에서 `NEXT_PUBLIC_EMS_API_MODE=remote`와
 - Agent 응답은 항상 `pending_review: true`이며, 원격 모드에서는 모든 항목의 승인·제외 결정을 확정 API가 성공적으로 저장한 뒤에만 화면의 확정 상태가 변경됩니다.
 - `NEXT_PUBLIC_EMS_REVIEWER_ID`는 해커톤용 검토자 식별자이며 운영에서는 Cognito 로그인 정보로 대체합니다.
 
-현재 배포된 AWS 백엔드는 API Gateway, Lambda, DynamoDB까지 실제 연결되어 있습니다. Bedrock Claude 호출은 AWS 계정의 결제수단 활성화 후 사용할 수 있으며, 활성화 전에는 `503 BEDROCK_BILLING_NOT_READY`를 반환해 기존 확정 상태를 변경하지 않습니다.
+현재 배포된 AWS 백엔드는 API Gateway, Lambda, DynamoDB까지 실제 연결되어 있습니다. Bedrock Claude 호출은 AWS 계정의 결제수단과 Anthropic 모델 사용 등록이 활성화된 후 사용할 수 있으며, 준비 전에는 명시적인 503 응답을 반환해 기존 확정 상태를 변경하지 않습니다.
