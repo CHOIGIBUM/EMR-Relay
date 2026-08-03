@@ -637,8 +637,8 @@
 }
 
 .measureButton span { display: flex; flex-direction: column; }
-.measureButton strong { font-size: 9px; }
-.measureButton small { margin-top: 2px; color: #668087; font-size: 7px; }
+.measureButton strong { font-size: 11px; }
+.measureButton small { margin-top: 3px; color: #668087; font-size: 9px; line-height: 1.4; }
 
 .vitalGrid {
   margin-top: 9px;
@@ -654,14 +654,14 @@
   background: #f7fafb;
 }
 
-.vitalGrid label > span { color: #667c87; font-size: 8px; font-weight: 750; }
+.vitalGrid label > span { color: #667c87; font-size: 10px; font-weight: 750; }
 .vitalGrid label > div { margin-top: 3px; display: flex; align-items: baseline; gap: 4px; }
 .vitalGrid input { width: 100%; min-width: 0; padding: 0; color: #122e42; border: 0; outline: 0; background: transparent; font-size: 15px; font-weight: 850; }
-.vitalGrid input::placeholder { color: #a8b4b9; font-size: 8px; font-weight: 500; }
-.vitalGrid small { color: #778b94; font-size: 7px; white-space: nowrap; }
+.vitalGrid input::placeholder { color: #a8b4b9; font-size: 10px; font-weight: 500; }
+.vitalGrid small { color: #778b94; font-size: 9px; white-space: nowrap; }
 
 .choiceRow,
-.cpssRow {
+.cardioAssessmentRow {
   margin-top: 9px;
   padding-top: 9px;
   display: flex;
@@ -672,17 +672,17 @@
 }
 
 .choiceRow > span,
-.cpssRow > div:first-child { display: flex; flex-direction: column; }
+.cardioAssessmentRow > div:first-child { display: flex; flex-direction: column; }
 .choiceRow strong,
-.cpssRow strong { font-size: 9px; }
+.cardioAssessmentRow strong { font-size: 10px; }
 .choiceRow small,
-.cpssRow small { margin-top: 2px; color: #7a8b93; font-size: 7px; }
+.cardioAssessmentRow small { margin-top: 2px; color: #7a8b93; font-size: 9px; }
 .choiceRow > div,
-.cpssRow > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
+.cardioAssessmentRow > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .choiceRow button,
-.cpssRow button { min-height: 27px; padding: 0 7px; color: #657983; border: 1px solid #d4e0e4; border-radius: 7px; background: #fff; font-size: 7px; font-weight: 800; }
+.cardioAssessmentRow button { min-height: 30px; padding: 0 8px; color: #657983; border: 1px solid #d4e0e4; border-radius: 7px; background: #fff; font-size: 9px; font-weight: 800; }
 .choiceRow .choiceActive,
-.cpssRow .choiceActive { color: #fff; border-color: #087f8c; background: #087f8c; box-shadow: 0 4px 10px rgba(8,127,140,0.18); }
+.cardioAssessmentRow .choiceActive { color: #fff; border-color: #087f8c; background: #087f8c; box-shadow: 0 4px 10px rgba(8,127,140,0.18); }
 
 .timeSection {
   margin-top: 10px;
@@ -698,9 +698,29 @@
 }
 
 .timeSection > div:last-child { border-bottom: 0; }
-.timeSection span { display: flex; align-items: center; gap: 5px; color: #657b86; font-size: 8px; }
+.timeSection span { display: flex; align-items: center; gap: 5px; color: #657b86; font-size: 10px; }
 .timeSection strong { color: #173247; font-size: 14px; }
-.timeSection small { grid-column: 1 / -1; margin-top: -8px; color: #86969d; font-size: 7px; }
+.timeSection small { grid-column: 1 / -1; margin-top: -8px; color: #86969d; font-size: 9px; }
+
+.reassessmentForm {
+  margin-top: 10px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  border: 1px solid #cfe0e4;
+  border-radius: 12px;
+  background: #f7fafb;
+}
+
+.reassessmentForm label { padding: 7px; border: 1px solid #dce7ea; border-radius: 9px; background: #fff; }
+.reassessmentForm label > span { display: block; color: #617882; font-size: 9px; font-weight: 750; }
+.reassessmentForm label > div { margin-top: 3px; display: flex; align-items: baseline; gap: 4px; }
+.reassessmentForm input { width: 100%; min-width: 0; color: #173247; border: 0; outline: 0; background: transparent; font-size: 13px; font-weight: 800; }
+.reassessmentForm small { color: #7b8e96; font-size: 8px; white-space: nowrap; }
+.reassessmentForm .trendField { grid-column: 1 / -1; }
+.reassessmentForm .trendField input { margin-top: 5px; padding: 7px 8px; border: 1px solid #dce7ea; border-radius: 7px; font-size: 10px; font-weight: 650; }
+.reassessmentForm .saveReassessment { grid-column: 1 / -1; min-height: 40px; display: flex; justify-content: center; align-items: center; gap: 6px; color: #fff; border: 0; border-radius: 9px; background: #087f8c; font-size: 10px; font-weight: 850; }
 
 .pttButton {
   width: 100%;
@@ -1348,23 +1368,41 @@
 .listeningPanel h2,
 .voiceReview h2 { margin: 16px 0 0; font-size: 18px; }
 .listeningPanel > p,
-.voiceReview > p { margin: 6px 0 0; color: #aac5d2; font-size: 9px; line-height: 1.5; }
+.voiceReview > p { margin: 7px 0 0; color: #aac5d2; font-size: 11px; line-height: 1.55; }
 .liveTranscript,
 .transcriptBox { min-height: 86px; margin-top: 18px; padding: 14px; color: #eef9fa; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(255,255,255,0.07); font-size: 12px; font-weight: 700; line-height: 1.65; text-align: left; }
 .liveTranscript i { display: inline-block; width: 2px; height: 14px; margin-left: 3px; vertical-align: middle; background: #59d5d7; animation: blink 0.8s step-end infinite; }
-.listeningPanel > button { width: 100%; min-height: 42px; margin-top: 14px; color: #d4e8ee; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.08); font-size: 9px; font-weight: 800; }
+.listeningPanel > button { width: 100%; min-height: 44px; margin-top: 14px; color: #d4e8ee; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.08); font-size: 11px; font-weight: 800; }
 
 .voiceReview { max-height: 690px; overflow-y: auto; color: #183247; background: #fff; }
 .voiceReview h2 { color: #122d42; }
 .voiceReview > p { color: #6a7e88; }
-.transcriptBox { min-height: auto; color: #294754; border-color: #d6e4e7; background: #eef5f6; font-size: 9px; }
+.transcriptBox { min-height: auto; color: #294754; border-color: #d6e4e7; background: #eef5f6; font-size: 11px; }
 .extractedList { margin-top: 12px; overflow: hidden; border: 1px solid #d9e5e8; border-radius: 11px; text-align: left; }
-.extractedList > div { min-height: 39px; padding: 7px 9px; display: grid; grid-template-columns: 74px 1fr auto; align-items: center; gap: 5px; border-bottom: 1px solid #eaf0f2; }
-.extractedList > div:last-child { border-bottom: 0; }
-.extractedList > div > span:first-child { color: #6d818b; font-size: 7px; }
-.extractedList strong { font-size: 9px; }
+.extractedList > button {
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  color: #183247;
+  border: 0;
+  border-bottom: 1px solid #eaf0f2;
+  border-left: 3px solid transparent;
+  background: #fff;
+  text-align: left;
+  transition: background 140ms ease, border-color 140ms ease;
+}
+.extractedList > button:last-child { border-bottom: 0; }
+.extractedList > button:hover { background: #f4f9fa; }
+.extractedList > button.choiceActive { border-left-color: #087f8c; background: #eaf7f6; }
+.extractedList > button > span:first-child { color: #607680; font-size: 10px; font-weight: 750; }
+.extractedList strong { font-size: 11px; line-height: 1.35; }
 .reviewActions { margin-top: 13px; display: grid; grid-template-columns: 0.7fr 1.4fr; gap: 7px; }
-.reviewActions button { min-height: 43px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid #d5e1e5; border-radius: 10px; background: #fff; font-size: 9px; font-weight: 850; }
+.reviewActions button { min-height: 45px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid #d5e1e5; border-radius: 10px; background: #fff; font-size: 11px; font-weight: 850; }
+.reviewActions button:disabled { opacity: 0.48; cursor: not-allowed; }
 .reviewActions button:last-child { color: #fff; border-color: #087f8c; background: #087f8c; }
 
 .mobileGuide {

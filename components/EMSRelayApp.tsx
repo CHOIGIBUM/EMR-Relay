@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Check,
   Clock3,
+  FileText,
   Hospital,
   MapPin,
   RadioTower,
@@ -18,9 +19,10 @@ import { DemoProvider, FLOW_STAGES, SCENARIO, STAGE_LABEL, useDemo, type Actor, 
 import MobileApp from "./MobileApp";
 import ControlConsole from "./ControlConsole";
 import HospitalConsole from "./HospitalConsole";
+import ReportConsole from "./ReportConsole";
 import styles from "./EMSRelayApp.module.css";
 
-type View = "mobile" | "control" | "hospital" | "workflow";
+type View = "mobile" | "control" | "hospital" | "report" | "workflow";
 
 type RoleMeta = {
   label: string;
@@ -47,6 +49,12 @@ const roles: Record<View, RoleMeta> = {
     short: "병원",
     description: "수용 회신과 환자 인수를 확인합니다.",
     icon: Hospital,
+  },
+  report: {
+    label: "구급활동 기록",
+    short: "보고서",
+    description: "인계 완료 후 자동 작성된 기록을 검토합니다.",
+    icon: FileText,
   },
   workflow: {
     label: "전체 시연 흐름",
@@ -105,6 +113,7 @@ function noticeCount(view: View, stage: DemoStage) {
   if (view === "control" && (stage === "coordination-requested" || stage === "hospital-requested" || stage === "declined")) return 1;
   if (view === "hospital" && (stage === "hospital-requested" || stage === "info-sent" || stage === "handoff-sent")) return 1;
   if (view === "mobile" && (stage === "info-requested" || stage === "accepted" || stage === "complete")) return 1;
+  if (view === "report" && stage === "complete") return 1;
   return 0;
 }
 
@@ -116,9 +125,9 @@ function WorkflowBoard({ onOpenRole }: { onOpenRole: (view: View) => void }) {
       <div className={styles.workflowHero}>
         <div>
           <span className={styles.kicker}>단일 시연 사건 · {SCENARIO.id}</span>
-          <h2>78세 독거 여성 급성 뇌졸중 의심</h2>
+          <h2>{SCENARIO.patient} · {SCENARIO.impression}</h2>
           <p>
-            신고정보를 현장에서 확인한 뒤 구급대원이 병원에 직접 수용을 문의하고, 진행 상황은 상황실과 병원에 같은 기록으로 이어집니다.
+            신고정보를 현장에서 확인하고 PTT 변경안을 검토한 뒤, 같은 확정 상태가 병원 문의·이송·인계·보고서 초안까지 이어집니다.
           </p>
         </div>
         <div className={styles.heroFacts}>
@@ -212,7 +221,7 @@ function AppShell() {
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const next = new URLSearchParams(window.location.search).get("view");
-      if (next === "mobile" || next === "control" || next === "hospital" || next === "workflow") setView(next);
+      if (next === "mobile" || next === "control" || next === "hospital" || next === "report" || next === "workflow") setView(next);
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
@@ -270,6 +279,7 @@ function AppShell() {
         {view === "mobile" && <MobileApp />}
         {view === "control" && <ControlConsole />}
         {view === "hospital" && <HospitalConsole />}
+        {view === "report" && <ReportConsole />}
         {view === "workflow" && <WorkflowBoard onOpenRole={changeView} />}
       </main>
     </div>

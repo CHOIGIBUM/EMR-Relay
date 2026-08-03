@@ -305,6 +305,21 @@
   font-size: 7px;
 }
 
+.directoryError {
+  margin-top: 9px;
+  padding: 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: #8d4d20;
+  border: 1px solid #efd0ad;
+  border-radius: 10px;
+  background: #fff8ef;
+}
+.directoryError span { display: flex; flex-direction: column; }
+.directoryError strong { font-size: 10px; }
+.directoryError small { margin-top: 3px; color: #7b7169; font-size: 8px; }
+
 .candidateList { margin-top: 8px; display: grid; gap: 7px; }
 .candidateCard { width: 100%; min-height: 75px; padding: 9px; display: grid; grid-template-columns: auto 1fr 108px; align-items: center; gap: 9px; color: #193247; border: 1px solid #d7e3e7; border-radius: 11px; background: #fff; text-align: left; }
 .candidateCard:disabled { opacity: 0.62; }

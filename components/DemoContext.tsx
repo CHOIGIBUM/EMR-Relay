@@ -10,6 +10,16 @@ import {
   useRef,
   type ReactNode,
 } from "react";
+import {
+  CARDIO_DEMO_DISPATCH,
+  CARDIO_DEMO_HANDOFF,
+  CARDIO_DEMO_HOSPITALS,
+  CARDIO_DEMO_PATIENT,
+  CARDIO_DEMO_PTT_UPDATES,
+  CARDIO_DEMO_REPORT_DRAFT,
+  CARDIO_DEMO_VITALS,
+  type CardioPttProposal,
+} from "@/lib/cardioDemoData";
 
 export type DemoStage =
   | "assigned"
@@ -32,6 +42,8 @@ export type DemoStage =
 
 export type Actor = "119 상황실" | "구급대원" | "이송조정 상황실" | "병원" | "시스템";
 export type EventTone = "neutral" | "teal" | "amber" | "red";
+export type FactState = "confirmed" | "unconfirmed" | "unknown" | "pending_review";
+export type ReportStatus = "locked" | "ready" | "draft" | "reviewed" | "closed";
 
 export type DemoEvent = {
   id: number;
@@ -51,10 +63,8 @@ export type VitalValues = {
   glucose: string;
 };
 
-export type CpssValues = {
-  face: "미확인" | "정상" | "좌측" | "우측" | "평가 불가";
-  arm: "미확인" | "정상" | "좌측" | "우측" | "평가 불가";
-  speech: "미확인" | "정상" | "어눌함" | "표현 곤란" | "평가 불가";
+export type ConfirmedFact = CardioPttProposal & {
+  confirmedAt: string;
 };
 
 export type HospitalOption = {
@@ -67,59 +77,50 @@ export type HospitalOption = {
   reference: string[];
 };
 
+const formatClock = (iso: string) => new Intl.DateTimeFormat("ko-KR", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+}).format(new Date(iso));
+
 export const SCENARIO = {
-  id: "EMS-GW-001",
-  location: "홍천군 북방면 굴지리 125",
-  locationShort: "홍천군 북방면",
-  access: "단독주택 · 마당 안쪽 출입문",
-  caller: "이웃 주민",
+  id: CARDIO_DEMO_DISPATCH.displayId,
+  sourceCaseId: CARDIO_DEMO_DISPATCH.caseId,
+  unit: CARDIO_DEMO_DISPATCH.assignedUnit,
+  location: CARDIO_DEMO_DISPATCH.location.displayAddress,
+  locationShort: CARDIO_DEMO_DISPATCH.location.sigungu,
+  access: `${CARDIO_DEMO_DISPATCH.location.setting} · 신고자 현장 대기`,
+  caller: CARDIO_DEMO_DISPATCH.callerRelation,
   callerPhone: "010-42**-11**",
-  reportedPatient: "70대 추정 여성",
-  reportedComplaint: "말이 어눌하고 오른팔에 힘이 없음",
-  patient: "78세 여성",
-  living: "독거 · 자녀 타 지역 거주",
-  chiefComplaint: "갑작스러운 구음장애 · 우측 얼굴 및 팔 위약",
-  baseline: "평소 독립보행 · 대화 정상",
-  lnt: "13:40",
-  lntSource: "자녀와 정상 통화",
-  fat: "14:15",
-  fatSource: "이웃이 최초 발견",
-  history: ["고혈압", "당뇨"],
-  medication: "항응고제 복용 여부 미상",
-  allergy: "미상",
-  avpu: "A",
-  preKtas: "2",
+  reportedPatient: `${CARDIO_DEMO_DISPATCH.reportedAgeBand} 여성`,
+  reportedComplaint: CARDIO_DEMO_DISPATCH.reportedComplaint,
+  patient: `${CARDIO_DEMO_PATIENT.ageYears}세 ${CARDIO_DEMO_PATIENT.sexLabel}`,
+  living: `${CARDIO_DEMO_PATIENT.baselineFunction} · 현장 확인`,
+  chiefComplaint: CARDIO_DEMO_PATIENT.chiefComplaint,
+  baseline: CARDIO_DEMO_PATIENT.baselineFunction,
+  onset: formatClock(CARDIO_DEMO_PATIENT.onsetAt),
+  onsetSource: "환자·목격자 진술",
+  symptoms: [...CARDIO_DEMO_PATIENT.symptoms],
+  pain: { ...CARDIO_DEMO_PATIENT.pain },
+  history: [...CARDIO_DEMO_PATIENT.history.conditions],
+  medication: `${CARDIO_DEMO_PATIENT.history.medicationName} 복용 진술 · 확인 필요`,
+  allergy: CARDIO_DEMO_PATIENT.history.allergyLabel,
+  avpu: CARDIO_DEMO_PATIENT.initialAssessment.avpu,
+  impression: CARDIO_DEMO_PATIENT.prehospitalImpressionLabel,
+  impressionStatus: CARDIO_DEMO_PATIENT.impressionStatus,
+  interventions: ["심전도 감시", "12유도 심전도", "정맥로 확보"],
+  unresolvedItems: [...CARDIO_DEMO_PATIENT.unresolvedItems],
 } as const;
 
-export const HOSPITALS: HospitalOption[] = [
-  {
-    id: "hallym",
-    name: "한림대학교춘천성심병원",
-    type: "응급의료기관",
-    distance: "36.8 km",
-    eta: "35분",
-    location: "춘천시 삭주로 77",
-    reference: ["기관정보", "CT", "신경과"],
-  },
-  {
-    id: "knuh",
-    name: "강원대학교병원",
-    type: "응급의료기관",
-    distance: "39.2 km",
-    eta: "38분",
-    location: "춘천시 백령로 156",
-    reference: ["기관정보", "CT", "신경과"],
-  },
-  {
-    id: "hongcheon",
-    name: "홍천아산병원",
-    type: "응급의료기관",
-    distance: "11.4 km",
-    eta: "16분",
-    location: "홍천군 산림공원1길 17",
-    reference: ["기관정보", "가까운 순"],
-  },
-];
+export const HOSPITALS: HospitalOption[] = CARDIO_DEMO_HOSPITALS.map((hospital) => ({
+  id: hospital.id,
+  name: hospital.alias,
+  type: hospital.careLevelLabel,
+  distance: `${hospital.distanceKm.toFixed(1)} km`,
+  eta: `${hospital.etaMinutes}분`,
+  location: hospital.regionLabel,
+  reference: [...hospital.referenceCapabilities],
+}));
 
 export const STAGE_LABEL: Record<DemoStage, string> = {
   assigned: "출동 배정",
@@ -127,14 +128,14 @@ export const STAGE_LABEL: Record<DemoStage, string> = {
   "scene-arrived": "현장 도착",
   "patient-contact": "환자 접촉",
   assessing: "현장평가 중",
-  "summary-ready": "평가 완료",
-  "coordination-requested": "상황실 지원 요청",
+  "summary-ready": "확인본 준비",
+  "coordination-requested": "상황실 지원",
   "hospital-requested": "병원 회신 대기",
   "info-requested": "추가정보 요청",
   "info-sent": "추가정보 회신",
   declined: "수용 곤란",
   accepted: "수용 가능",
-  "destination-confirmed": "이송지 확인",
+  "destination-confirmed": "이송지 확정",
   transporting: "이송 중",
   "hospital-arrived": "병원 도착",
   "handoff-sent": "인수 확인 대기",
@@ -148,7 +149,6 @@ export const FLOW_STAGES: DemoStage[] = [
   "patient-contact",
   "assessing",
   "summary-ready",
-  "coordination-requested",
   "hospital-requested",
   "info-requested",
   "info-sent",
@@ -165,9 +165,11 @@ export type DemoState = {
   vitals: VitalValues;
   vitalsConfirmed: boolean;
   avpu: "미확인" | "A" | "V" | "P" | "U";
-  cpss: CpssValues;
-  strokeConfirmed: boolean;
+  cardioConfirmed: boolean;
   voiceConfirmed: boolean;
+  confirmedPttIds: string[];
+  confirmedFacts: Record<string, ConfirmedFact>;
+  rejectedProposalIds: string[];
   selectedHospitalId: string | null;
   declinedHospitalIds: string[];
   requestedInfo: string[];
@@ -175,8 +177,12 @@ export type DemoState = {
   hospitalViewed: boolean;
   destinationConfirmed: boolean;
   reassessmentSaved: boolean;
+  reassessmentVitals: VitalValues | null;
+  reassessmentSummary: string;
   handoffReceiver: string;
   handoffRole: string;
+  reportStatus: ReportStatus;
+  reportReviewedIds: string[];
   events: DemoEvent[];
 };
 
@@ -189,180 +195,59 @@ function formatEventTime(date = new Date()) {
 }
 
 function createInitialEvents(): DemoEvent[] {
-  const now = new Date();
-  const reportAt = new Date(now.getTime() - 2 * 60_000);
-  const dispatchAt = new Date(now.getTime() - 1 * 60_000);
   return [
     {
       id: 1,
-      time: formatEventTime(reportAt),
+      time: formatClock(CARDIO_DEMO_DISPATCH.callReceivedAt),
       actor: "119 상황실",
       title: "119 신고 접수",
-      detail: "이웃 신고 · 말이 어눌하고 오른팔에 힘이 없음",
+      detail: `${CARDIO_DEMO_DISPATCH.callerRelation} 신고 · ${CARDIO_DEMO_DISPATCH.reportedComplaint}`,
     },
     {
       id: 2,
-      time: formatEventTime(dispatchAt),
+      time: formatClock(CARDIO_DEMO_DISPATCH.dispatchAssignedAt),
       actor: "119 상황실",
       title: "구급대 출동 지령",
-      detail: "홍천소방서 구급1대 배정",
+      detail: `${CARDIO_DEMO_DISPATCH.assignedUnit} 배정`,
       tone: "teal",
     },
   ];
 }
 
-const initialEvents = createInitialEvents();
+function emptyVitals(): VitalValues {
+  return { bp: "", pr: "", rr: "", spo2: "", temp: "", glucose: "" };
+}
 
-export const initialDemoState: DemoState = {
-  stage: "assigned",
-  vitals: { bp: "", pr: "", rr: "", spo2: "", temp: "", glucose: "" },
-  vitalsConfirmed: false,
-  avpu: "미확인",
-  cpss: { face: "미확인", arm: "미확인", speech: "미확인" },
-  strokeConfirmed: false,
-  voiceConfirmed: false,
-  selectedHospitalId: null,
-  declinedHospitalIds: [],
-  requestedInfo: [],
-  infoReply: null,
-  hospitalViewed: false,
-  destinationConfirmed: false,
-  reassessmentSaved: false,
-  handoffReceiver: "",
-  handoffRole: "간호사",
-  events: initialEvents,
-};
-
-export const DEMO_STORAGE_VERSION = 2;
-export const DEMO_STORAGE_KEY = "ems-relay:mvp-state";
-export const DEMO_CHANNEL_NAME = "ems-relay:mvp-state-sync";
-
-type DemoStateSnapshot = {
-  version: typeof DEMO_STORAGE_VERSION;
-  updatedAt: number;
-  sourceId: string;
-  state: DemoState;
-};
-
-function cloneDemoState(state: DemoState): DemoState {
+function initialState(): DemoState {
   return {
-    ...state,
-    vitals: { ...state.vitals },
-    cpss: { ...state.cpss },
-    declinedHospitalIds: [...state.declinedHospitalIds],
-    requestedInfo: [...state.requestedInfo],
-    events: state.events.map((event) => ({ ...event })),
+    stage: "assigned",
+    vitals: emptyVitals(),
+    vitalsConfirmed: false,
+    avpu: "미확인",
+    cardioConfirmed: false,
+    voiceConfirmed: false,
+    confirmedPttIds: [],
+    confirmedFacts: {},
+    rejectedProposalIds: [],
+    selectedHospitalId: null,
+    declinedHospitalIds: [],
+    requestedInfo: [],
+    infoReply: null,
+    hospitalViewed: false,
+    destinationConfirmed: false,
+    reassessmentSaved: false,
+    reassessmentVitals: null,
+    reassessmentSummary: "미확인",
+    handoffReceiver: "",
+    handoffRole: "간호사",
+    reportStatus: "locked",
+    reportReviewedIds: [],
+    events: createInitialEvents(),
   };
 }
 
-function createInitialDemoState(): DemoState {
-  return { ...cloneDemoState(initialDemoState), events: createInitialEvents() };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
-}
-
-function isDemoEvent(value: unknown): value is DemoEvent {
-  if (!isRecord(value)) return false;
-  return (
-    typeof value.id === "number"
-    && Number.isFinite(value.id)
-    && typeof value.time === "string"
-    && typeof value.actor === "string"
-    && typeof value.title === "string"
-    && typeof value.detail === "string"
-    && (value.tone === undefined || ["neutral", "teal", "amber", "red"].includes(String(value.tone)))
-  );
-}
-
-function isDemoState(value: unknown): value is DemoState {
-  if (!isRecord(value)) return false;
-  const vitals = value.vitals;
-  const cpss = value.cpss;
-  if (!isRecord(vitals) || !isRecord(cpss)) return false;
-
-  const validStages: DemoStage[] = [...FLOW_STAGES, "declined"];
-  const validAvpu: DemoState["avpu"][] = [initialDemoState.avpu, "A", "V", "P", "U"];
-  const selectedHospitalIsValid = value.selectedHospitalId === null
-    || (typeof value.selectedHospitalId === "string" && HOSPITALS.some((hospital) => hospital.id === value.selectedHospitalId));
-
-  return (
-    typeof value.stage === "string"
-    && validStages.includes(value.stage as DemoStage)
-    && ["bp", "pr", "rr", "spo2", "temp", "glucose"].every((key) => typeof vitals[key] === "string")
-    && typeof value.vitalsConfirmed === "boolean"
-    && typeof value.avpu === "string"
-    && validAvpu.includes(value.avpu as DemoState["avpu"])
-    && ["face", "arm", "speech"].every((key) => typeof cpss[key] === "string")
-    && typeof value.strokeConfirmed === "boolean"
-    && typeof value.voiceConfirmed === "boolean"
-    && selectedHospitalIsValid
-    && isStringArray(value.declinedHospitalIds)
-    && value.declinedHospitalIds.every((id) => HOSPITALS.some((hospital) => hospital.id === id))
-    && isStringArray(value.requestedInfo)
-    && (value.infoReply === null || typeof value.infoReply === "string")
-    && typeof value.hospitalViewed === "boolean"
-    && typeof value.destinationConfirmed === "boolean"
-    && typeof value.reassessmentSaved === "boolean"
-    && typeof value.handoffReceiver === "string"
-    && typeof value.handoffRole === "string"
-    && Array.isArray(value.events)
-    && value.events.every(isDemoEvent)
-  );
-}
-
-function parseSnapshot(value: unknown): DemoStateSnapshot | null {
-  if (!isRecord(value)) return null;
-  if (value.version !== DEMO_STORAGE_VERSION) return null;
-  if (typeof value.updatedAt !== "number" || !Number.isFinite(value.updatedAt) || value.updatedAt <= 0) return null;
-  if (typeof value.sourceId !== "string" || value.sourceId.length === 0) return null;
-  if (!isDemoState(value.state)) return null;
-
-  return {
-    version: DEMO_STORAGE_VERSION,
-    updatedAt: value.updatedAt,
-    sourceId: value.sourceId,
-    state: cloneDemoState(value.state),
-  };
-}
-
-function parseStoredSnapshot(serialized: string | null): DemoStateSnapshot | null {
-  if (serialized === null) return null;
-  try {
-    return parseSnapshot(JSON.parse(serialized));
-  } catch {
-    return null;
-  }
-}
-
-function readStoredSnapshot(): DemoStateSnapshot | null {
-  try {
-    const serialized = window.localStorage.getItem(DEMO_STORAGE_KEY);
-    const snapshot = parseStoredSnapshot(serialized);
-    if (serialized !== null && snapshot === null) window.localStorage.removeItem(DEMO_STORAGE_KEY);
-    return snapshot;
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredSnapshot(snapshot: DemoStateSnapshot) {
-  try {
-    window.localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(snapshot));
-  } catch {
-    // Storage may be unavailable in private or restricted browser contexts.
-  }
-}
-
-function createSourceId() {
-  if (typeof window.crypto?.randomUUID === "function") return window.crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
+const STORAGE_KEY = "ems-relay:cardio-mvp-state:v5";
+const CHANNEL_NAME = "ems-relay:cardio-mvp-state:v5";
 
 type Action = (
   | { type: "RESET" }
@@ -370,8 +255,7 @@ type Action = (
   | { type: "LOAD_VITALS" }
   | { type: "SET_VITAL"; key: keyof VitalValues; value: string }
   | { type: "SET_AVPU"; value: DemoState["avpu"] }
-  | { type: "SET_CPSS"; key: keyof CpssValues; value: CpssValues[keyof CpssValues] }
-  | { type: "CONFIRM_VOICE" }
+  | { type: "CONFIRM_PTT"; updateId: string; acceptedProposalIds: string[]; rejectedProposalIds?: string[] }
   | { type: "CONFIRM_ASSESSMENT" }
   | { type: "REQUEST_COORDINATION" }
   | { type: "REQUEST_HOSPITAL"; hospitalId: string }
@@ -382,89 +266,126 @@ type Action = (
   | { type: "DECLINE"; reason: string }
   | { type: "ACCEPT" }
   | { type: "CONFIRM_DESTINATION" }
-  | { type: "SAVE_REASSESSMENT" }
+  | { type: "SAVE_REASSESSMENT"; values?: VitalValues; symptomTrend?: string }
   | { type: "SET_HANDOFF"; receiver: string; role: string }
   | { type: "RECEIVE_PATIENT"; receiver: string; role: string }
+  | { type: "CREATE_REPORT" }
+  | { type: "TOGGLE_REPORT_REVIEW"; reviewId: string }
+  | { type: "MARK_REPORT_REVIEWED" }
+  | { type: "CLOSE_CASE" }
 ) & { occurredAt?: string };
 
-type ManagedState = {
-  value: DemoState;
-  origin: "initial" | "local" | "hydrate" | "remote";
-  revision: number;
-};
+function appendEvent(state: DemoState, event: Omit<DemoEvent, "id">): DemoState {
+  return { ...state, events: [...state.events, { ...event, id: state.events.length + 1 }] };
+}
 
-type ManagedAction =
-  | { type: "LOCAL_ACTION"; action: Action }
-  | { type: "REPLACE_STATE"; state: DemoState; origin: "hydrate" | "remote" };
-
-function appendEvent(
-  state: DemoState,
-  event: Omit<DemoEvent, "id">,
-): DemoState {
+function vitalValuesAt(index: number): VitalValues {
+  const vital = CARDIO_DEMO_VITALS[index];
   return {
-    ...state,
-    events: [...state.events, { ...event, id: state.events.length + 1 }],
+    bp: `${vital.bloodPressure.systolic}/${vital.bloodPressure.diastolic}`,
+    pr: String(vital.heartRate.value),
+    rr: String(vital.respiratoryRate.value),
+    spo2: String(vital.spo2.value),
+    temp: String(vital.temperature.value),
+    glucose: String(vital.bloodGlucose.value),
   };
+}
+
+function vitalSummary(values: VitalValues) {
+  return `BP ${values.bp} mmHg · PR ${values.pr}회/분 · RR ${values.rr}회/분 · SpO₂ ${values.spo2}% · 혈당 ${values.glucose} mg/dL`;
+}
+
+function confirmPtt(
+  state: DemoState,
+  updateId: string,
+  acceptedProposalIds: string[],
+  rejectedProposalIds: string[],
+  occurredAt: string,
+): DemoState {
+  const update = CARDIO_DEMO_PTT_UPDATES.find((item) => item.id === updateId);
+  if (!update || state.confirmedPttIds.includes(update.id)) return state;
+
+  const accepted = update.proposals.filter((proposal) => acceptedProposalIds.includes(proposal.id));
+  const facts = { ...state.confirmedFacts };
+  for (const proposal of accepted) facts[proposal.id] = { ...proposal, confirmedAt: occurredAt };
+
+  const confirmedPttIds = [...state.confirmedPttIds, update.id];
+  const firstThreeConfirmed = CARDIO_DEMO_PTT_UPDATES.slice(0, 3).every((item) => confirmedPttIds.includes(item.id));
+  const isInitialVitals = update.topic === "vitals_ecg_intervention" && accepted.some((item) => item.id === "U03-vitals");
+  const isReassessment = update.topic === "reassessment_change" && accepted.some((item) => item.id === "U04-vitals");
+  const reassessmentVitals = isReassessment ? vitalValuesAt(1) : state.reassessmentVitals;
+
+  let next: DemoState = {
+    ...state,
+    stage: state.stage === "patient-contact" ? "assessing" : state.stage,
+    confirmedPttIds,
+    confirmedFacts: facts,
+    rejectedProposalIds: [...new Set([...state.rejectedProposalIds, ...rejectedProposalIds])],
+    voiceConfirmed: firstThreeConfirmed,
+    cardioConfirmed: firstThreeConfirmed,
+    vitals: isInitialVitals ? vitalValuesAt(0) : state.vitals,
+    vitalsConfirmed: isInitialVitals || state.vitalsConfirmed,
+    avpu: update.id === "GW-CARDIO-050-U01" && accepted.some((item) => item.id === "U01-avpu") ? "A" : state.avpu,
+    reassessmentSaved: isReassessment || state.reassessmentSaved,
+    reassessmentVitals,
+    reassessmentSummary: isReassessment ? "흉통 및 식은땀 일부 호전" : state.reassessmentSummary,
+  };
+
+  next = appendEvent(next, {
+    time: occurredAt,
+    actor: "구급대원",
+    title: `${update.title} 확인`,
+    detail: `제안 ${accepted.length}건 반영${rejectedProposalIds.length ? ` · ${rejectedProposalIds.length}건 제외` : ""}`,
+    tone: update.needsReview ? "amber" : "teal",
+  });
+  return next;
 }
 
 function reducer(state: DemoState, action: Action): DemoState {
   const occurredAt = action.occurredAt ?? formatEventTime();
   switch (action.type) {
     case "RESET":
-      return createInitialDemoState();
+      return initialState();
     case "TRANSITION":
       return appendEvent(
         { ...state, stage: action.stage },
         { time: occurredAt, actor: action.actor, title: action.title, detail: action.detail, tone: action.tone },
       );
     case "LOAD_VITALS":
+      {
+        const values = vitalValuesAt(0);
       return appendEvent(
-        {
-          ...state,
-          stage: "assessing",
-          vitals: { bp: "178/96", pr: "92", rr: "18", spo2: "97", temp: "36.7", glucose: "118" },
-          vitalsConfirmed: true,
-          avpu: "A",
-        },
+        { ...state, stage: "assessing", vitals: values, vitalsConfirmed: true, avpu: "A" },
         {
           time: occurredAt,
           actor: "구급대원",
           title: "최초 활력징후 확인",
-          detail: "BP 178/96 mmHg · PR 92회/분 · SpO₂ 97% · BST 118 mg/dL",
+          detail: vitalSummary(values),
           tone: "teal",
         },
       );
+      }
     case "SET_VITAL":
       return { ...state, vitals: { ...state.vitals, [action.key]: action.value } };
     case "SET_AVPU":
       return { ...state, avpu: action.value };
-    case "SET_CPSS":
-      return { ...state, cpss: { ...state.cpss, [action.key]: action.value } as CpssValues };
-    case "CONFIRM_VOICE":
-      return appendEvent(
-        {
-          ...state,
-          stage: "assessing",
-          voiceConfirmed: true,
-          strokeConfirmed: true,
-          cpss: { face: "우측", arm: "우측", speech: "어눌함" },
-        },
-        {
-          time: occurredAt,
-          actor: "구급대원",
-          title: "뇌졸중 선별정보 확인",
-          detail: "우측 얼굴·팔 위약, 구음장애 · LNT 13:40 · FAT 14:15",
-          tone: "amber",
-        },
+    case "CONFIRM_PTT":
+      return confirmPtt(
+        state,
+        action.updateId,
+        action.acceptedProposalIds,
+        action.rejectedProposalIds ?? [],
+        occurredAt,
       );
     case "CONFIRM_ASSESSMENT":
+      if (!state.vitalsConfirmed || state.avpu === "미확인" || state.confirmedPttIds.length < 3) return state;
       return appendEvent(
-        { ...state, stage: "summary-ready", strokeConfirmed: true },
+        { ...state, stage: "summary-ready", cardioConfirmed: true },
         {
           time: occurredAt,
           actor: "구급대원",
           title: "환자 확인본 생성",
-          detail: "급성 뇌졸중 의심 · Pre-KTAS 2 · 미상 항목 포함",
+          detail: `${SCENARIO.impression} · 확정 진단 아님 · 미상 항목 ${SCENARIO.unresolvedItems.length}건`,
           tone: "teal",
         },
       );
@@ -475,14 +396,14 @@ function reducer(state: DemoState, action: Action): DemoState {
           time: occurredAt,
           actor: "구급대원",
           title: "상황실 지원 요청",
-          detail: "병원 문의 지원이 필요한 예외 사건 공유",
+          detail: "장거리 이송 및 병원 연락 지원 요청",
           tone: "amber",
         },
       );
     case "REQUEST_HOSPITAL": {
       const hospital = HOSPITALS.find((item) => item.id === action.hospitalId);
-      const hasActiveRequest = ["hospital-requested", "info-requested", "info-sent", "accepted", "destination-confirmed"].includes(state.stage);
-      if (!hospital || hasActiveRequest || state.declinedHospitalIds.includes(hospital.id)) return state;
+      const requestActive = ["hospital-requested", "info-requested", "info-sent", "accepted", "destination-confirmed"].includes(state.stage);
+      if (!hospital || requestActive || state.declinedHospitalIds.includes(hospital.id)) return state;
       return appendEvent(
         {
           ...state,
@@ -497,7 +418,7 @@ function reducer(state: DemoState, action: Action): DemoState {
           time: occurredAt,
           actor: "구급대원",
           title: "병원 수용 문의",
-          detail: `${hospital.name} · 순차 문의 1건`,
+          detail: `${hospital.name} · 확정 환자정보와 ETA ${hospital.eta} 전달`,
           tone: "amber",
         },
       );
@@ -505,49 +426,43 @@ function reducer(state: DemoState, action: Action): DemoState {
     case "CALL_HOSPITAL": {
       const hospital = HOSPITALS.find((item) => item.id === action.hospitalId);
       if (!hospital) return state;
-      return appendEvent(
-        state,
-        {
-          time: occurredAt,
-          actor: "구급대원",
-          title: "병원 전화 연결",
-          detail: `${hospital.name} · ${action.result?.trim() || "전화 연결 시도"}`,
-        },
-      );
+      return appendEvent(state, {
+        time: occurredAt,
+        actor: "구급대원",
+        title: "병원 전화 연결",
+        detail: `${hospital.name} · ${action.result?.trim() || "전화 연결 시도"}`,
+      });
     }
     case "MARK_HOSPITAL_VIEWED":
       if (state.hospitalViewed) return state;
       return appendEvent(
         { ...state, hospitalViewed: true },
-        {
-          time: occurredAt,
-          actor: "병원",
-          title: "수용 요청 열람",
-          detail: "병원 담당자가 구급대원 환자 확인본을 열람",
-        },
+        { time: occurredAt, actor: "병원", title: "수용 요청 열람", detail: "병원 담당자가 확인본을 열람" },
       );
     case "REQUEST_INFO":
       return appendEvent(
         { ...state, stage: "info-requested", requestedInfo: action.fields },
-        {
-          time: occurredAt,
-          actor: "병원",
-          title: "추가정보 요청",
-          detail: action.fields.join(" · "),
-          tone: "amber",
-        },
+        { time: occurredAt, actor: "병원", title: "추가정보 요청", detail: action.fields.join(" · "), tone: "amber" },
       );
-    case "ANSWER_INFO":
+    case "ANSWER_INFO": {
+      const values = vitalValuesAt(1);
+      const update = CARDIO_DEMO_PTT_UPDATES[3];
+      const afterReview = confirmPtt(state, update.id, update.proposals.map((item) => item.id), [], occurredAt);
       return appendEvent(
-        { ...state, stage: "info-sent", infoReply: "항응고제 복용 여부와 마지막 복용시각 미상" },
+        {
+          ...afterReview,
+          stage: "info-sent",
+          infoReply: `재평가 ${vitalSummary(values)} · ${SCENARIO.medication} · 12유도 심전도 상세 소견 미상`,
+        },
         {
           time: occurredAt,
           actor: "구급대원",
           title: "추가정보 회신",
-          detail: "항응고제 복용 여부와 마지막 복용시각 미상",
+          detail: "확정값과 미상 상태를 구분해 회신",
           tone: "teal",
         },
       );
+    }
     case "DECLINE": {
       const hospital = HOSPITALS.find((item) => item.id === state.selectedHospitalId);
       return appendEvent(
@@ -575,7 +490,7 @@ function reducer(state: DemoState, action: Action): DemoState {
           time: occurredAt,
           actor: "병원",
           title: "수용 가능 회신",
-          detail: `${hospital?.name ?? "요청 병원"} · 응급실 구급차 출입구`,
+          detail: `${hospital?.name ?? "요청 병원"} · 구급차 출입구 도착 후 해당 팀 호출`,
           tone: "teal",
         },
       );
@@ -592,16 +507,26 @@ function reducer(state: DemoState, action: Action): DemoState {
           tone: "teal",
         },
       );
-    case "SAVE_REASSESSMENT":
-      return appendEvent(
-        { ...state, reassessmentSaved: true },
-        {
-          time: occurredAt,
-          actor: "구급대원",
-          title: "이송 중 재평가",
-          detail: "AVPU A · BP 180/98 mmHg · SpO₂ 97% · 증상 지속",
-        },
-      );
+    case "SAVE_REASSESSMENT": {
+      const update = CARDIO_DEMO_PTT_UPDATES[3];
+      const values = action.values ?? vitalValuesAt(1);
+      const symptomTrend = action.symptomTrend?.trim() || "흉통 및 식은땀 일부 호전";
+      const confirmedFromVoice = confirmPtt(state, update.id, update.proposals.map((item) => item.id), [], occurredAt);
+      const confirmed = {
+        ...confirmedFromVoice,
+        reassessmentSaved: true,
+        reassessmentVitals: values,
+        reassessmentSummary: symptomTrend,
+      };
+      if (confirmed === state) return state;
+      return appendEvent(confirmed, {
+        time: occurredAt,
+        actor: "구급대원",
+        title: "이송 중 재평가",
+        detail: `${vitalSummary(values)} · ${symptomTrend}`,
+        tone: "teal",
+      });
+    }
     case "SET_HANDOFF":
       return appendEvent(
         { ...state, stage: "handoff-sent", handoffReceiver: action.receiver, handoffRole: action.role },
@@ -609,42 +534,85 @@ function reducer(state: DemoState, action: Action): DemoState {
           time: occurredAt,
           actor: "구급대원",
           title: "구두·전자 인계 완료",
-          detail: "병원 의료진 인수 확인 대기",
+          detail: "IMIST-AMBO 인계문 전달 · 병원 인수 확인 대기",
           tone: "teal",
         },
       );
     case "RECEIVE_PATIENT":
       return appendEvent(
-        { ...state, stage: "complete", handoffReceiver: action.receiver, handoffRole: action.role },
+        {
+          ...state,
+          stage: "complete",
+          handoffReceiver: action.receiver,
+          handoffRole: action.role,
+          reportStatus: "ready",
+        },
         {
           time: occurredAt,
           actor: "병원",
           title: "환자 인수 확인",
-          detail: `${action.role} ${action.receiver || "담당자"} · 사건 종료`,
+          detail: `${action.role} ${action.receiver || "담당자"} · 인계 완료`,
           tone: "teal",
         },
+      );
+    case "CREATE_REPORT":
+      if (state.reportStatus === "locked") return state;
+      return appendEvent(
+        { ...state, reportStatus: "draft" },
+        {
+          time: occurredAt,
+          actor: "시스템",
+          title: "보고서 초안 생성",
+          detail: `${CARDIO_DEMO_REPORT_DRAFT.completion.autoFilledFields}/${CARDIO_DEMO_REPORT_DRAFT.completion.totalFields}개 항목 자동 작성`,
+          tone: "teal",
+        },
+      );
+    case "TOGGLE_REPORT_REVIEW":
+      return {
+        ...state,
+        reportReviewedIds: state.reportReviewedIds.includes(action.reviewId)
+          ? state.reportReviewedIds.filter((id) => id !== action.reviewId)
+          : [...state.reportReviewedIds, action.reviewId],
+      };
+    case "MARK_REPORT_REVIEWED":
+      if (state.reportReviewedIds.length < CARDIO_DEMO_REPORT_DRAFT.reviewItems.length) return state;
+      return appendEvent(
+        { ...state, reportStatus: "reviewed" },
+        { time: occurredAt, actor: "구급대원", title: "보고서 검토 완료", detail: "확인 필요 항목 검토 완료", tone: "teal" },
+      );
+    case "CLOSE_CASE":
+      if (state.reportStatus !== "reviewed") return state;
+      return appendEvent(
+        { ...state, reportStatus: "closed" },
+        { time: occurredAt, actor: "구급대원", title: "사건 기록 종료", detail: "보고서 초안 승인 · 사건 잠금", tone: "teal" },
       );
     default:
       return state;
   }
 }
 
-function managedReducer(state: ManagedState, action: ManagedAction): ManagedState {
-  if (action.type === "REPLACE_STATE") {
-    return {
-      value: cloneDemoState(action.state),
-      origin: action.origin,
-      revision: state.revision + 1,
-    };
-  }
+type ManagedState = { value: DemoState; origin: "initial" | "local" | "hydrate" | "remote"; revision: number };
+type ManagedAction =
+  | { type: "LOCAL"; action: Action }
+  | { type: "REPLACE"; state: DemoState; origin: "hydrate" | "remote" };
 
-  const nextState = reducer(state.value, action.action);
-  if (nextState === state.value) return state;
-  return {
-    value: nextState,
-    origin: "local",
-    revision: state.revision + 1,
-  };
+function managedReducer(state: ManagedState, action: ManagedAction): ManagedState {
+  if (action.type === "REPLACE") return { value: action.state, origin: action.origin, revision: state.revision + 1 };
+  const next = reducer(state.value, action.action);
+  if (next === state.value) return state;
+  return { value: next, origin: "local", revision: state.revision + 1 };
+}
+
+function readStoredState(): DemoState | null {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<DemoState>;
+    if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.events) || !Array.isArray(parsed.confirmedPttIds)) return null;
+    return { ...initialState(), ...parsed } as DemoState;
+  } catch {
+    return null;
+  }
 }
 
 type DemoContextValue = {
@@ -659,126 +627,52 @@ type DemoContextValue = {
 const DemoContext = createContext<DemoContextValue | null>(null);
 
 export function DemoProvider({ children }: { children: ReactNode }) {
-  const [managedState, managedDispatch] = useReducer(managedReducer, {
-    value: createInitialDemoState(),
+  const [managed, managedDispatch] = useReducer(managedReducer, {
+    value: initialState(),
     origin: "initial",
     revision: 0,
   });
-  const hydratedRef = useRef(false);
-  const sourceIdRef = useRef("");
-  const lastAppliedAtRef = useRef(0);
   const channelRef = useRef<BroadcastChannel | null>(null);
-  const pendingRemoteSnapshotRef = useRef<DemoStateSnapshot | null>(null);
+  const hydratedRef = useRef(false);
+  const state = managed.value;
 
-  const state = managedState.value;
   const dispatch = useCallback<React.Dispatch<Action>>((action) => {
-    managedDispatch({
-      type: "LOCAL_ACTION",
-      action: { ...action, occurredAt: formatEventTime() } as Action,
-    });
+    managedDispatch({ type: "LOCAL", action: { ...action, occurredAt: formatEventTime() } as Action });
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return undefined;
-
-    const sourceId = sourceIdRef.current || createSourceId();
-    sourceIdRef.current = sourceId;
-
-    const receiveSnapshot = (value: unknown) => {
-      const snapshot = parseSnapshot(value);
-      if (!snapshot) return;
-      if (snapshot.sourceId === sourceIdRef.current) return;
-      if (snapshot.updatedAt <= lastAppliedAtRef.current) return;
-
-      lastAppliedAtRef.current = snapshot.updatedAt;
-      pendingRemoteSnapshotRef.current = snapshot;
-      managedDispatch({ type: "REPLACE_STATE", state: snapshot.state, origin: "remote" });
-    };
-
-    let channel: BroadcastChannel | null = null;
+    const stored = readStoredState();
+    if (stored) managedDispatch({ type: "REPLACE", state: stored, origin: "hydrate" });
     if ("BroadcastChannel" in window) {
-      try {
-        channel = new BroadcastChannel(DEMO_CHANNEL_NAME);
-        channel.onmessage = (event: MessageEvent<unknown>) => receiveSnapshot(event.data);
-        channelRef.current = channel;
-      } catch {
-        channel = null;
-      }
-    }
-
-    const handleStorage = (event: StorageEvent) => {
-      if (event.key !== DEMO_STORAGE_KEY || event.newValue === null) return;
-      const snapshot = parseStoredSnapshot(event.newValue);
-      if (snapshot) receiveSnapshot(snapshot);
-    };
-    window.addEventListener("storage", handleStorage);
-
-    const storedSnapshot = readStoredSnapshot();
-    if (storedSnapshot) {
-      lastAppliedAtRef.current = storedSnapshot.updatedAt;
-      managedDispatch({ type: "REPLACE_STATE", state: storedSnapshot.state, origin: "hydrate" });
-    } else {
-      const initialSnapshot: DemoStateSnapshot = {
-        version: DEMO_STORAGE_VERSION,
-        updatedAt: Date.now(),
-        sourceId,
-        state: createInitialDemoState(),
+      const channel = new BroadcastChannel(CHANNEL_NAME);
+      channel.onmessage = (event: MessageEvent<DemoState>) => {
+        if (event.data && Array.isArray(event.data.events)) managedDispatch({ type: "REPLACE", state: event.data, origin: "remote" });
       };
-      lastAppliedAtRef.current = initialSnapshot.updatedAt;
-      writeStoredSnapshot(initialSnapshot);
+      channelRef.current = channel;
     }
     hydratedRef.current = true;
-
-    return () => {
-      window.removeEventListener("storage", handleStorage);
-      channel?.close();
-      if (channelRef.current === channel) channelRef.current = null;
-    };
+    return () => channelRef.current?.close();
   }, []);
 
   useEffect(() => {
-    if (!hydratedRef.current) return;
-
-    if (managedState.origin === "remote") {
-      const remoteSnapshot = pendingRemoteSnapshotRef.current;
-      if (remoteSnapshot) writeStoredSnapshot(remoteSnapshot);
-      pendingRemoteSnapshotRef.current = null;
-      return;
-    }
-
-    if (managedState.origin !== "local") return;
-    const sourceId = sourceIdRef.current;
-    if (!sourceId) return;
-
-    const updatedAt = Math.max(Date.now(), lastAppliedAtRef.current + 1);
-    const snapshot: DemoStateSnapshot = {
-      version: DEMO_STORAGE_VERSION,
-      updatedAt,
-      sourceId,
-      state: cloneDemoState(state),
-    };
-    lastAppliedAtRef.current = updatedAt;
-    writeStoredSnapshot(snapshot);
-    channelRef.current?.postMessage(snapshot);
-  }, [managedState.origin, managedState.revision, state]);
+    if (!hydratedRef.current || managed.origin !== "local") return;
+    try { window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* local demo may run with storage disabled */ }
+    channelRef.current?.postMessage(state);
+  }, [managed.origin, managed.revision, state]);
 
   const selectedHospital = HOSPITALS.find((item) => item.id === state.selectedHospitalId) ?? null;
   const progress = state.stage === "declined"
     ? FLOW_STAGES.indexOf("hospital-requested")
     : Math.max(0, FLOW_STAGES.indexOf(state.stage));
 
-  const value = useMemo<DemoContextValue>(
-    () => ({
-      state,
-      dispatch,
-      selectedHospital,
-      progress,
-      reset: () => dispatch({ type: "RESET" }),
-      transition: (stage, actor, title, detail, tone) =>
-        dispatch({ type: "TRANSITION", stage, actor, title, detail, tone }),
-    }),
-    [state, dispatch, selectedHospital, progress],
-  );
+  const value = useMemo<DemoContextValue>(() => ({
+    state,
+    dispatch,
+    selectedHospital,
+    progress,
+    reset: () => dispatch({ type: "RESET" }),
+    transition: (stage, actor, title, detail, tone) => dispatch({ type: "TRANSITION", stage, actor, title, detail, tone }),
+  }), [state, dispatch, selectedHospital, progress]);
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
 }
@@ -790,8 +684,8 @@ export function useDemo() {
 }
 
 export function stageAtLeast(stage: DemoStage, target: DemoStage) {
-  const stageIndex = FLOW_STAGES.indexOf(stage);
-  const targetIndex = FLOW_STAGES.indexOf(target);
   if (stage === "declined") return target === "coordination-requested" || target === "hospital-requested";
-  return stageIndex >= targetIndex;
+  return FLOW_STAGES.indexOf(stage) >= FLOW_STAGES.indexOf(target);
 }
+
+export { CARDIO_DEMO_HANDOFF, CARDIO_DEMO_PTT_UPDATES, CARDIO_DEMO_REPORT_DRAFT, CARDIO_DEMO_VITALS };

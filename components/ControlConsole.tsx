@@ -34,9 +34,10 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 export default function ControlConsole() {
   const { state, selectedHospital } = useDemo();
   const [hospitalOptions, setHospitalOptions] = useState<HospitalOption[]>(HOSPITALS);
-  const [directoryState, setDirectoryState] = useState<"idle" | "ready" | "fallback">("idle");
+  const [directoryState, setDirectoryState] = useState<"idle" | "ready" | "error">("idle");
   const [toast, setToast] = useState<string | null>(null);
   const hasRequest = stageAtLeast(state.stage, "coordination-requested") || state.stage === "declined";
+  const arrivedAtHospital = stageAtLeast(state.stage, "hospital-arrived") && state.stage !== "declined";
   const timeFor = (...titles: string[]) =>
     [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
 
@@ -58,8 +59,8 @@ export default function ControlConsole() {
       })
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return;
-        setHospitalOptions(HOSPITALS);
-        setDirectoryState("fallback");
+        setHospitalOptions([]);
+        setDirectoryState("error");
       });
 
     return () => controller.abort();
@@ -114,7 +115,7 @@ export default function ControlConsole() {
           {hasRequest ? (
             <button className={styles.queueItem}>
               <i data-tone={requestState.tone} />
-              <div><span><strong>{SCENARIO.id}</strong><time>{state.events.at(-1)?.time}</time></span><b>{SCENARIO.patient} · 뇌졸중 의심</b><small><Headphones size={13} /> {requestState.label}</small></div>
+              <div><span><strong>{SCENARIO.id}</strong><time>{state.events.at(-1)?.time}</time></span><b>{SCENARIO.patient} · {SCENARIO.impression}</b><small><Headphones size={13} /> {requestState.label}</small></div>
               <ChevronRight size={18} />
             </button>
           ) : (
@@ -134,7 +135,7 @@ export default function ControlConsole() {
           ) : (
             <>
               <header className={styles.caseHeader}>
-                <div><span className={styles.kicker}>중증환자 이송 지원</span><div><h1>{SCENARIO.id}</h1><Badge tone={requestState.tone}>{requestState.label}</Badge></div><p><Ambulance size={15} /> 홍천소방서 구급1대 <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 최근 갱신 {state.events.at(-1)?.time}</p></div>
+                <div><span className={styles.kicker}>심혈관 응급 이송 지원</span><div><h1>{SCENARIO.id}</h1><Badge tone={requestState.tone}>{requestState.label}</Badge></div><p><Ambulance size={15} /> {SCENARIO.unit} <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 최근 갱신 {state.events.at(-1)?.time}</p></div>
                 <div className={styles.owner}><Headphones size={18} /><span><small>예외 연락 지원</small><strong>상황실 박○○</strong></span></div>
               </header>
 
@@ -143,35 +144,37 @@ export default function ControlConsole() {
                   <div className={styles.sectionTitle}><div><Activity size={19} /><h2>구급대원 환자 확인본</h2></div><Badge tone="teal">읽기 전용</Badge></div>
                   <div className={styles.patientLead}>
                     <div><span>현재 환자 상태</span><h3>{SCENARIO.patient}</h3><p>{SCENARIO.chiefComplaint}</p></div>
-                    <div><span>급성 뇌졸중 의심</span><span>CPSS 양성</span><span>Pre-KTAS {SCENARIO.preKtas}</span></div>
+                    <div><span>{SCENARIO.impression}</span><span>확정 진단 아님</span><span>흉통 NRS {SCENARIO.pain.severityNrs}</span></div>
                   </div>
                   <div className={styles.vitals}>
                     <div><span>BP</span><strong>{state.vitals.bp}</strong><small>mmHg</small></div>
                     <div><span>PR</span><strong>{state.vitals.pr}</strong><small>회/분</small></div>
                     <div><span>RR</span><strong>{state.vitals.rr}</strong><small>회/분</small></div>
                     <div><span>SpO₂</span><strong>{state.vitals.spo2}</strong><small>%</small></div>
-                    <div><span>BST</span><strong>{state.vitals.glucose}</strong><small>mg/dL</small></div>
-                    <div><span>AVPU</span><strong>{state.avpu}</strong><small>{timeFor("최초 활력징후 확인", "뇌졸중 선별정보 확인")}</small></div>
+                    <div><span>혈당</span><strong>{state.vitals.glucose}</strong><small>mg/dL</small></div>
+                    <div><span>AVPU</span><strong>{state.avpu}</strong><small>{timeFor("최초 활력징후 확인", "심혈관 중점평가 확인")}</small></div>
                   </div>
                   <div className={styles.keyFacts}>
-                    <div><span>LNT</span><strong>{SCENARIO.lnt}</strong><small>{SCENARIO.lntSource} · 자녀 진술</small></div>
-                    <div><span>FAT</span><strong>{SCENARIO.fat}</strong><small>{SCENARIO.fatSource} · 이웃 진술</small></div>
-                    <div><span>복용약</span><strong>{SCENARIO.medication}</strong><small>미상으로 전달</small></div>
+                    <div><span>발생시각</span><strong>{SCENARIO.onset}</strong><small>{SCENARIO.onsetSource}</small></div>
+                    <div><span>동반증상</span><strong>{SCENARIO.symptoms.join(" · ")}</strong><small>환자 진술·현장 관찰</small></div>
+                    <div><span>복용약</span><strong>{SCENARIO.medication}</strong><small>진술 기반 · 약제 확인 필요</small></div>
                   </div>
                 </section>
 
                 <section className={styles.candidates}>
-                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>구급대 표시 병원 후보</h2></div><span>{directoryState === "idle" ? "기관정보 조회 중" : directoryState === "fallback" ? "로컬 예비정보" : "거리·ETA·기관정보 참고"}</span></div>
+                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>구급대 표시 병원 후보</h2></div><span>{directoryState === "idle" ? "기관정보 조회 중" : directoryState === "error" ? "기관정보 연결 안 됨" : "거리·ETA·기관정보 참고"}</span></div>
                   <div className={styles.referenceNotice}><Info size={16} /><span>가까운 순이 추천 순위는 아닙니다. 공공정보만으로 수용 가능 여부를 판단하지 않습니다.</span></div>
+                  {directoryState === "error" && <div className={styles.directoryError}><AlertCircle size={18} /><span><strong>기관정보를 불러오지 못했습니다.</strong><small>재조회 전까지 병원 후보를 표시하지 않습니다.</small></span></div>}
                   <div className={styles.candidateList}>
                     {hospitalOptions.map((hospital) => {
                       const declined = state.declinedHospitalIds.includes(hospital.id);
                       const active = state.selectedHospitalId === hospital.id;
+                      const accepted = active && stageAtLeast(state.stage, "accepted") && state.stage !== "declined";
                       return (
                         <div className={`${styles.candidateCard} ${active ? styles.candidateSelected : ""}`} key={hospital.id}>
                           <span className={styles.radio}>{active ? <Check size={14} /> : null}</span>
                           <div><strong>{hospital.name}</strong><small>{hospital.type} · {hospital.location}</small><p>{hospital.reference.map((item) => <span key={item}>{item}</span>)}</p></div>
-                          <div className={styles.routeInfo}><strong>{hospital.eta}</strong><span>{hospital.distance}</span>{declined ? <Badge tone="red">수용 곤란</Badge> : active ? <Badge tone="amber">요청 중</Badge> : <Badge>수용 확인 전</Badge>}</div>
+                          <div className={styles.routeInfo}><strong>{hospital.eta}</strong><span>{hospital.distance}</span>{declined ? <Badge tone="red">수용 곤란</Badge> : active && state.destinationConfirmed ? <Badge tone="green">이송지 확인</Badge> : accepted ? <Badge tone="green">수용 가능</Badge> : active ? <Badge tone="amber">요청 중</Badge> : <Badge>수용 확인 전</Badge>}</div>
                         </div>
                       );
                     })}
@@ -223,7 +226,7 @@ export default function ControlConsole() {
           )}
 
           {stageAtLeast(state.stage, "transporting") && state.stage !== "complete" && (
-            <div className={styles.transportAction}><Navigation size={23} /><span><strong>{STAGE_LABEL[state.stage]}</strong><small>ETA {selectedHospital?.eta}</small></span><div><span>재평가</span><strong>{state.reassessmentSaved ? `${timeFor("이송 중 재평가")} 수신` : "갱신 대기"}</strong></div><div><span>인계</span><strong>{state.stage === "handoff-sent" ? "병원 확인 대기" : "진행 전"}</strong></div></div>
+            <div className={styles.transportAction}><Navigation size={23} /><span><strong>{STAGE_LABEL[state.stage]}</strong><small>{arrivedAtHospital ? `도착 ${timeFor("병원 도착")}` : `ETA ${selectedHospital?.eta ?? "—"}`}</small></span><div><span>재평가</span><strong>{state.reassessmentSaved ? `${timeFor("이송 중 재평가", "이송 전 재평가 확인", "추가정보 회신")} 수신` : "갱신 대기"}</strong></div><div><span>인계</span><strong>{state.stage === "handoff-sent" ? "병원 확인 대기" : arrivedAtHospital ? "인계 대기" : "진행 전"}</strong></div></div>
           )}
 
           {state.stage === "complete" && (

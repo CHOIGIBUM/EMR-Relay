@@ -25,17 +25,17 @@ test("renders the EMS Relay application shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>EMS Relay \| 급성 뇌졸중 의심 환자 정보 연결<\/title>/i);
+  assert.match(html, /<title>EMS Relay \| 심혈관 응급환자 실시간 인계<\/title>/i);
   assert.match(html, /EMS Relay/);
   assert.match(html, /구급대/);
   assert.match(html, /병원/);
   assert.match(html, /상황실/);
-  assert.match(html, /EMS-GW-001/);
-  assert.match(html, /70대 추정 여성/);
-  assert.match(html, /홍천군 북방면/);
+  assert.match(html, /EMS-GW-050/);
+  assert.match(html, /65~74세 추정 여성/);
+  assert.match(html, /속초시/);
   assert.match(html, /출동 사건 1건/);
   assert.match(html, /og:image/);
-  assert.doesNotMatch(html, /EMS-GW-002|EMS-GW-003|60대 추정 남성/);
+  assert.doesNotMatch(html, /EMS-GW-001|EMS-GW-002|EMS-GW-003|60대 추정 남성/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
@@ -56,7 +56,7 @@ test("serves the local MVP health and hospital fixtures", async () => {
   const directory = await hospitalResponse.json();
   assert.equal(directory.dataSource, "local-demo-fixture");
   assert.equal(directory.hospitals.length, 3);
-  assert.ok(directory.hospitals.some((hospital) => hospital.id === "hallym"));
+  assert.ok(directory.hospitals.some((hospital) => hospital.id === "H-GW-EMG-016"));
 });
 
 test("structures the example field statement through the local agent API", async () => {
@@ -65,20 +65,16 @@ test("structures the example field statement through the local agent API", async
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
-        transcript: "78세 여성, 의식 명료. 오른쪽 얼굴과 팔에 위약이 있고 말이 어눌합니다. LNT 13시 40분, FAT 14시 15분입니다.",
+        updateId: "GW-CARDIO-050-U01",
+        transcript: "73세 여성 환자입니다. 주호소는 쥐어짜는 양상의 흉통입니다. 현재 의식은 AVPU A이고 목격자 진술과 함께 확인했습니다.",
       }),
     }),
   );
   assert.equal(response.status, 200);
   const result = await response.json();
-  assert.equal(result.source, "local-deterministic-agent");
-  assert.deepEqual(result.structured, {
-    avpu: "A",
-    face: "우측",
-    arm: "우측",
-    speech: "어눌함",
-    lnt: "13:40",
-    fat: "14:15",
-  });
-  assert.ok(result.processingDelayMs >= 300 && result.processingDelayMs <= 600);
+  assert.equal(result.source, "local-structured-demo");
+  assert.equal(result.writesConfirmedState, false);
+  assert.equal(result.update.id, "GW-CARDIO-050-U01");
+  assert.equal(result.update.proposals.length, 3);
+  assert.ok(result.update.proposals.every((proposal) => proposal.status === "confirmed"));
 });

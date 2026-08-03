@@ -29,84 +29,31 @@ import {
   Wifi,
   X,
 } from "lucide-react";
-import { HOSPITALS, SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type CpssValues, type HospitalOption, type VitalValues } from "./DemoContext";
+import {
+  CARDIO_DEMO_HANDOFF,
+  CARDIO_DEMO_PTT_UPDATES,
+  CARDIO_DEMO_VITALS,
+  HOSPITALS,
+  SCENARIO,
+  STAGE_LABEL,
+  stageAtLeast,
+  useDemo,
+  type HospitalOption,
+  type VitalValues,
+} from "./DemoContext";
+import type { CardioPttProposal, CardioPttUpdate } from "@/lib/cardioDemoData";
 import styles from "./MobileApp.module.css";
 
 type Tab = "field" | "patient" | "hospital" | "handoff";
 type VoiceMode = "listening" | "processing" | "review" | null;
 type HospitalCandidateStatus = "available" | "locked" | "pending" | "info" | "accepted" | "declined" | "confirmed";
 
-type VoiceStructuredFields = {
-  avpu: string;
-  face: string;
-  arm: string;
-  speech: string;
-  lnt: string;
-  fat: string;
-};
-
-type VoiceAgentResponse = {
-  transcript?: unknown;
-  structured?: Partial<Record<keyof VoiceStructuredFields, unknown>>;
-  needsReview?: unknown;
-  data?: {
-    transcript?: unknown;
-    structured?: Partial<Record<keyof VoiceStructuredFields, unknown>>;
-    needsReview?: unknown;
-  };
-};
-
 type VoiceResult = {
-  transcript: string;
-  structured: VoiceStructuredFields;
-  usedFallback: boolean;
+  update: CardioPttUpdate;
+  source: "local-agent";
 };
 
 const API_BASE = (process.env.NEXT_PUBLIC_EMS_API_BASE ?? "/api/local").replace(/\/$/, "");
-
-const FALLBACK_VOICE_RESULT: VoiceResult = {
-  transcript: "78세 여성, 의식 명료. 오른쪽 얼굴과 팔에 위약이 있고 말이 어눌합니다. LNT 13시 40분, FAT 14시 15분입니다.",
-  structured: {
-    avpu: "A",
-    face: "우측",
-    arm: "우측",
-    speech: "어눌함",
-    lnt: "13:40",
-    fat: "14:15",
-  },
-  usedFallback: true,
-};
-
-function normalizeVoiceResult(payload: VoiceAgentResponse): VoiceResult {
-  const source = payload.data ?? payload;
-  const structured = source.structured ?? {};
-  let usedFallback = source.needsReview === true;
-
-  const valueOrFallback = (key: keyof VoiceStructuredFields) => {
-    const value = structured[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-    usedFallback = true;
-    return FALLBACK_VOICE_RESULT.structured[key];
-  };
-
-  const transcript = typeof source.transcript === "string" && source.transcript.trim()
-    ? source.transcript.trim()
-    : FALLBACK_VOICE_RESULT.transcript;
-  if (transcript === FALLBACK_VOICE_RESULT.transcript && source.transcript !== FALLBACK_VOICE_RESULT.transcript) usedFallback = true;
-
-  return {
-    transcript,
-    structured: {
-      avpu: valueOrFallback("avpu"),
-      face: valueOrFallback("face"),
-      arm: valueOrFallback("arm"),
-      speech: valueOrFallback("speech"),
-      lnt: valueOrFallback("lnt"),
-      fat: valueOrFallback("fat"),
-    },
-    usedFallback,
-  };
-}
 
 function defaultTab(stage: ReturnType<typeof useDemo>["state"]["stage"]): Tab {
   if (["coordination-requested", "hospital-requested", "info-requested", "info-sent", "declined", "accepted", "destination-confirmed"].includes(stage)) return "hospital";
@@ -115,39 +62,36 @@ function defaultTab(stage: ReturnType<typeof useDemo>["state"]["stage"]): Tab {
   return "field";
 }
 
-const transcriptSteps = [
-  "78세 여성, 의식은 명료하고…",
-  "78세 여성, 의식은 명료하고 오른쪽 얼굴 처짐과 오른팔 위약이 있습니다.",
-  "78세 여성, 의식은 명료하고 오른쪽 얼굴 처짐과 오른팔 위약이 있습니다. 말이 어눌합니다.",
-  "마지막 정상 확인 13시 40분, 이웃이 14시 15분에 처음 이상 상태를 발견했습니다.",
-];
-
 const vitalFields: Array<{ key: keyof VitalValues; label: string; unit: string; placeholder: string }> = [
-  { key: "bp", label: "혈압 BP", unit: "mmHg", placeholder: "예: 178/96" },
-  { key: "pr", label: "맥박 PR", unit: "회/분", placeholder: "예: 92" },
-  { key: "rr", label: "호흡수 RR", unit: "회/분", placeholder: "예: 18" },
-  { key: "spo2", label: "SpO₂", unit: "%", placeholder: "예: 97" },
-  { key: "temp", label: "체온 BT", unit: "℃", placeholder: "예: 36.7" },
-  { key: "glucose", label: "혈당 BST", unit: "mg/dL", placeholder: "예: 118" },
+  { key: "bp", label: "혈압 BP", unit: "mmHg", placeholder: "예: 163/90" },
+  { key: "pr", label: "맥박 PR", unit: "회/분", placeholder: "예: 91" },
+  { key: "rr", label: "호흡수 RR", unit: "회/분", placeholder: "예: 23" },
+  { key: "spo2", label: "SpO₂", unit: "%", placeholder: "예: 96" },
+  { key: "temp", label: "체온", unit: "℃", placeholder: "예: 37.4" },
+  { key: "glucose", label: "혈당", unit: "mg/dL", placeholder: "예: 116" },
 ];
 
-const cpssOptions: Record<keyof CpssValues, string[]> = {
-  face: ["정상", "좌측", "우측", "평가 불가"],
-  arm: ["정상", "좌측", "우측", "평가 불가"],
-  speech: ["정상", "어눌함", "표현 곤란", "평가 불가"],
-};
-
-const cpssLabels: Record<keyof CpssValues, { title: string; hint: string }> = {
-  face: { title: "얼굴 처짐", hint: "이를 보이게 하고 좌우를 확인" },
-  arm: { title: "팔 위약", hint: "양팔을 들어 10초간 유지" },
-  speech: { title: "말하기", hint: "문장 반복과 발음 확인" },
+const reassessmentFixture = CARDIO_DEMO_VITALS[1];
+const reassessmentDefaults: VitalValues = {
+  bp: `${reassessmentFixture.bloodPressure.systolic}/${reassessmentFixture.bloodPressure.diastolic}`,
+  pr: String(reassessmentFixture.heartRate.value),
+  rr: String(reassessmentFixture.respiratoryRate.value),
+  spo2: String(reassessmentFixture.spo2.value),
+  temp: String(reassessmentFixture.temperature.value),
+  glucose: String(reassessmentFixture.bloodGlucose.value),
 };
 
 const HOSPITAL_CONTEXT: Record<string, string> = {
-  hallym: "CT · 신경과 기관정보 확인",
-  knuh: "CT · 신경과 기관정보 확인",
-  hongcheon: "가까운 거리 · 진료 가능 여부 확인 필요",
+  "H-GW-EMG-020": "정적 기관정보 · 실제 수용 여부는 회신으로만 확인",
+  "H-GW-EMG-016": "심장내과 등록정보 · 현재 대응 여력은 별도 확인",
+  "H-GW-EMG-012": "응급실 등록정보 · 현재 진료 가능 여부 확인 필요",
 };
+
+function reviewTone(status: CardioPttProposal["status"]): "confirmed" | "unknown" | "neutral" {
+  if (status === "confirmed") return "confirmed";
+  if (status === "unknown") return "unknown";
+  return "neutral";
+}
 
 function StatusBadge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "teal" | "amber" | "green" | "red" }) {
   return <span className={styles.statusBadge} data-tone={tone}>{children}</span>;
@@ -162,10 +106,14 @@ export default function MobileApp() {
   const [caseOpen, setCaseOpen] = useState(false);
   const [tab, setTab] = useState<Tab>(() => defaultTab(state.stage));
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
-  const [voiceResult, setVoiceResult] = useState<VoiceResult>(FALLBACK_VOICE_RESULT);
+  const [voiceResult, setVoiceResult] = useState<VoiceResult | null>(null);
+  const [acceptedProposalIds, setAcceptedProposalIds] = useState<string[]>([]);
   const [transcriptIndex, setTranscriptIndex] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [callingHospitalId, setCallingHospitalId] = useState<string | null>(null);
+  const [showReassessmentForm, setShowReassessmentForm] = useState(false);
+  const [reassessmentDraft, setReassessmentDraft] = useState<VitalValues>(reassessmentDefaults);
+  const [reassessmentTrend, setReassessmentTrend] = useState("흉통 및 식은땀 일부 호전");
   const toastRef = useRef<number | null>(null);
   const timeFor = (...titles: string[]) =>
     [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
@@ -174,6 +122,16 @@ export default function MobileApp() {
   const voiceRequestRef = useRef<AbortController | null>(null);
   const voiceRequestIdRef = useRef(0);
   const callingHospital = HOSPITALS.find((hospital) => hospital.id === callingHospitalId) ?? null;
+  const nextPttUpdate = useMemo(() => {
+    const pending = CARDIO_DEMO_PTT_UPDATES.filter((update) => !state.confirmedPttIds.includes(update.id));
+    if (state.stage === "transporting") return pending.find((update) => update.sequence === 4) ?? null;
+    return pending.find((update) => update.sequence <= 3) ?? null;
+  }, [state.confirmedPttIds, state.stage]);
+  const transcriptSteps = useMemo(() => {
+    const transcript = nextPttUpdate?.transcript ?? "확인할 다음 음성 입력이 없습니다.";
+    const parts = transcript.split(/(?<=[.!?])\s+/).filter(Boolean);
+    return parts.length ? parts.map((_, index) => parts.slice(0, index + 1).join(" ")) : [transcript];
+  }, [nextPttUpdate]);
 
   const notify = (message: string) => {
     setToast(message);
@@ -194,11 +152,11 @@ export default function MobileApp() {
       setTranscriptIndex((current) => Math.min(current + 1, transcriptSteps.length - 1));
     }, 650);
     return () => window.clearInterval(timer);
-  }, [voiceMode]);
+  }, [voiceMode, transcriptSteps.length]);
 
   const assessmentReady = useMemo(
-    () => state.vitalsConfirmed && state.avpu !== "미확인" && state.voiceConfirmed && Object.values(state.cpss).every((value) => value !== "미확인"),
-    [state.vitalsConfirmed, state.avpu, state.voiceConfirmed, state.cpss],
+    () => state.vitalsConfirmed && state.avpu !== "미확인" && CARDIO_DEMO_PTT_UPDATES.slice(0, 3).every((update) => state.confirmedPttIds.includes(update.id)),
+    [state.vitalsConfirmed, state.avpu, state.confirmedPttIds],
   );
 
   const setVoicePhase = (next: VoiceMode) => {
@@ -214,7 +172,7 @@ export default function MobileApp() {
   };
 
   const beginVoice = () => {
-    if (voiceModeRef.current !== null) return;
+    if (voiceModeRef.current !== null || !nextPttUpdate) return;
     voiceRequestIdRef.current += 1;
     voiceRequestRef.current?.abort();
     voiceRequestRef.current = null;
@@ -223,7 +181,8 @@ export default function MobileApp() {
   };
 
   const finishVoice = () => {
-    if (voiceModeRef.current !== "listening") return;
+    const pendingUpdate = nextPttUpdate;
+    if (voiceModeRef.current !== "listening" || !pendingUpdate) return;
 
     const requestId = voiceRequestIdRef.current + 1;
     voiceRequestIdRef.current = requestId;
@@ -238,21 +197,26 @@ export default function MobileApp() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            action: "STRUCTURE_VOICE",
+            action: "STRUCTURE_VOICE_UPDATE",
             incidentId: SCENARIO.id,
             locale: "ko-KR",
-            transcript: FALLBACK_VOICE_RESULT.transcript,
+            updateId: pendingUpdate.id,
+            transcript: pendingUpdate.transcript,
           }),
           signal: controller.signal,
         });
         if (!response.ok) throw new Error(`Voice agent request failed: ${response.status}`);
-        const payload = await response.json() as VoiceAgentResponse;
+        const payload = await response.json() as { update?: CardioPttUpdate };
         if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
-        setVoiceResult(normalizeVoiceResult(payload));
+        if (!payload.update || payload.update.id !== pendingUpdate.id) throw new Error("Voice update contract mismatch");
+        const update = payload.update;
+        setVoiceResult({ update, source: "local-agent" });
+        setAcceptedProposalIds(update.proposals.map((proposal) => proposal.id));
         setVoicePhase("review");
       } catch {
         if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
-        setVoiceResult(FALLBACK_VOICE_RESULT);
+        setVoiceResult(null);
+        setAcceptedProposalIds([]);
         setVoicePhase("review");
       } finally {
         if (voiceRequestIdRef.current === requestId) voiceRequestRef.current = null;
@@ -319,10 +283,10 @@ export default function MobileApp() {
             <span>{SCENARIO.id}</span>
             <time><Clock3 size={14} /> 지령 {timeFor("구급대 출동 지령")}</time>
           </div>
-          <strong>의식·운동 이상</strong>
+          <strong>흉통·식은땀</strong>
           <p>{SCENARIO.reportedPatient} · {SCENARIO.reportedComplaint}</p>
           <div className={styles.caseLocation}><MapPin size={15} /> {SCENARIO.locationShort}</div>
-          <div className={styles.caseFooter}><StatusBadge tone="amber">출동 배정</StatusBadge><span>홍천소방서 구급1대</span><ChevronRight size={19} /></div>
+          <div className={styles.caseFooter}><StatusBadge tone="amber">출동 배정</StatusBadge><span>{SCENARIO.unit}</span><ChevronRight size={19} /></div>
         </button>
         <div className={styles.emptyList}><ClipboardCheck size={21} /><span>다른 배정 사건이 없습니다.</span></div>
       </main>
@@ -342,8 +306,8 @@ export default function MobileApp() {
             <dl>
               <div><dt>신고자</dt><dd>{SCENARIO.caller}</dd></div>
               <div><dt>신고시각</dt><dd>{timeFor("119 신고 접수")}</dd></div>
-              <div><dt>의식·호흡</dt><dd>의식 있음 · 호흡함</dd></div>
-              <div><dt>발견시각</dt><dd>14:15 추정</dd></div>
+              <div><dt>신고 당시</dt><dd>의식 있음 · 자발호흡</dd></div>
+              <div><dt>증상 시작</dt><dd>정확한 시각 현장 확인 필요</dd></div>
             </dl>
           </section>
 
@@ -353,7 +317,7 @@ export default function MobileApp() {
               <i />
               <span className={styles.mapDestination}><MapPin size={16} /></span>
             </div>
-            <div><span>현장까지</span><strong>{enroute ? "5분" : "6분"}</strong><small>3.8 km · 북방면 방면</small></div>
+            <div><span>현장까지</span><strong>{enroute ? "31분" : "34분"}</strong><small>27.4 km · 속초권 도로 기준</small></div>
             <Navigation size={20} />
           </section>
 
@@ -373,7 +337,7 @@ export default function MobileApp() {
         </main>
         <div className={styles.stickyAction}>
           {!enroute ? (
-            <button className={styles.primaryAction} onClick={() => transition("enroute", "구급대원", "출동 시작", "홍천소방서 구급1대 · 시각 자동 기록", "teal")}>
+            <button className={styles.primaryAction} onClick={() => transition("enroute", "구급대원", "출동 시작", `${SCENARIO.unit} · 사용자 확인 시각 기록`, "teal")}>
               <Ambulance size={21} /> 출동 시작
             </button>
           ) : (
@@ -399,22 +363,18 @@ export default function MobileApp() {
         <section className={styles.arrivalChecklist}>
           <div><ShieldCheck size={18} /><span><strong>현장 안전 확인</strong><small>특이 위험요소 신고 없음</small></span><StatusBadge tone="teal">확인</StatusBadge></div>
           <div><MapPin size={18} /><span><strong>환자 위치</strong><small>{SCENARIO.access}</small></span></div>
-          <div><UserRound size={18} /><span><strong>정보 제공자</strong><small>{SCENARIO.caller} 현장 대기</small></span></div>
+          <div><UserRound size={18} /><span><strong>정보 제공자</strong><small>{SCENARIO.caller} 진술 확인</small></span></div>
         </section>
         <div className={styles.noticeBox}><Info size={18} /><span><strong>현장 도착과 환자 접촉은 다릅니다.</strong><small>환자를 실제로 확인한 뒤 접촉 버튼을 눌러주세요.</small></span></div>
       </main>
       <div className={styles.stickyAction}>
-        <button className={styles.primaryAction} onClick={() => transition("patient-contact", "구급대원", "환자 접촉", "78세 여성 · 현장 직접 확인", "teal")}>
+        <button className={styles.primaryAction} onClick={() => transition("patient-contact", "구급대원", "환자 접촉", `${SCENARIO.patient} · 현장 직접 확인`, "teal")}>
           <UserRound size={21} /> 환자 접촉
         </button>
         <span>환자를 실제로 확인한 시각이 기록됩니다.</span>
       </div>
     </>
   );
-
-  const setCpss = (key: keyof CpssValues, value: string) => {
-    dispatch({ type: "SET_CPSS", key, value: value as CpssValues[keyof CpssValues] });
-  };
 
   const renderFieldAssessment = () => (
     <>
@@ -429,7 +389,7 @@ export default function MobileApp() {
         <div className={styles.sectionTitle}><div><HeartPulse size={18} /><strong>최초 활력징후</strong></div><span>측정시각 {state.vitalsConfirmed ? timeFor("최초 활력징후 확인") : "미기록"}</span></div>
         {!state.vitalsConfirmed && (
           <button className={styles.measureButton} onClick={() => dispatch({ type: "LOAD_VITALS" })}>
-            <Activity size={18} /><span><strong>측정값 입력</strong><small>시연 환자의 측정값을 불러와 수정할 수 있습니다.</small></span><ArrowRight size={17} />
+            <Activity size={18} /><span><strong>활력징후 입력 시작</strong><small>측정값을 확인하고 필요하면 수정하세요.</small></span><ArrowRight size={17} />
           </button>
         )}
         <div className={styles.vitalGrid}>
@@ -447,25 +407,29 @@ export default function MobileApp() {
       </section>
 
       <section className={styles.formSection}>
-        <div className={styles.sectionTitle}><div><Activity size={18} /><strong>병원 전 뇌졸중 선별검사(CPSS)</strong></div><SourceTag tone={state.strokeConfirmed ? "confirmed" : "neutral"}>{state.strokeConfirmed ? "확인됨" : "확인 중"}</SourceTag></div>
-        {Object.keys(cpssLabels).map((rawKey) => {
-          const key = rawKey as keyof CpssValues;
-          return (
-            <div className={styles.cpssRow} key={key}>
-              <div><strong>{cpssLabels[key].title}</strong><small>{cpssLabels[key].hint}</small></div>
-              <div>{cpssOptions[key].map((value) => <button className={state.cpss[key] === value ? styles.choiceActive : ""} onClick={() => setCpss(key, value)} key={value}>{value}</button>)}</div>
-            </div>
-          );
-        })}
+        <div className={styles.sectionTitle}><div><Activity size={18} /><strong>심혈관계 집중평가</strong></div><SourceTag tone={state.cardioConfirmed ? "confirmed" : "neutral"}>{state.cardioConfirmed ? "확인됨" : "확인 중"}</SourceTag></div>
+        <div className={styles.cardioAssessmentRow}>
+          <div><strong>주호소·동반증상</strong><small>환자 진술과 현장 관찰을 구분</small></div>
+          <div>{["흉통", "식은땀", "오심"].map((value) => <button className={styles.choiceActive} key={value}>{value}</button>)}</div>
+        </div>
+        <div className={styles.cardioAssessmentRow}>
+          <div><strong>흉통 양상</strong><small>통증 NRS와 부위·방사통 확인</small></div>
+          <div><button className={styles.choiceActive}>NRS {SCENARIO.pain.severityNrs}</button><button className={styles.choiceActive}>{SCENARIO.pain.quality}</button></div>
+        </div>
+        <div className={styles.cardioAssessmentRow}>
+          <div><strong>초기 ABC</strong><small>구급대원이 직접 확인</small></div>
+          <div><button className={styles.choiceActive}>기도 개방</button><button className={styles.choiceActive}>자발호흡</button></div>
+        </div>
       </section>
 
       <section className={styles.timeSection}>
-        <div><span><Clock3 size={17} /> 마지막 정상 확인 LNT</span><strong>{state.voiceConfirmed ? SCENARIO.lnt : "확인 필요"}</strong><small>{state.voiceConfirmed ? SCENARIO.lntSource : "정보 제공자와 시각을 확인하세요"}</small></div>
-        <div><span><Clock3 size={17} /> 최초 이상 발견 FAT</span><strong>{state.voiceConfirmed ? SCENARIO.fat : "확인 필요"}</strong><small>{state.voiceConfirmed ? SCENARIO.fatSource : "발견자와 시각을 확인하세요"}</small></div>
+        <div><span><Clock3 size={17} /> 증상 발생시각</span><strong>{state.confirmedPttIds.includes("GW-CARDIO-050-U02") ? SCENARIO.onset : "확인 필요"}</strong><small>{state.confirmedPttIds.includes("GW-CARDIO-050-U02") ? SCENARIO.onsetSource : "환자·목격자에게 시각을 확인하세요"}</small></div>
+        <div><span><FileText size={17} /> PTT 확인 진행</span><strong>{Math.min(state.confirmedPttIds.length, 3)} / 3</strong><small>{nextPttUpdate?.title ?? "현장 입력 확인 완료"}</small></div>
       </section>
 
       <button
         className={styles.pttButton}
+        disabled={!nextPttUpdate}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onPointerCancel={finishVoice}
@@ -473,7 +437,7 @@ export default function MobileApp() {
         onKeyUp={handleVoiceKeyUp}
       >
         <span><Mic size={24} /></span>
-        <div><strong>누르고 말하기</strong><small>환자 상태를 말하고 손을 떼세요</small></div>
+        <div><strong>{nextPttUpdate ? "누르고 말하기" : "현장 음성 확인 완료"}</strong><small>{nextPttUpdate ? `${nextPttUpdate.sequence}. ${nextPttUpdate.title}` : "이송 중 재평가에서 다시 사용할 수 있습니다"}</small></div>
       </button>
 
       <button
@@ -483,7 +447,7 @@ export default function MobileApp() {
       >
         <ClipboardCheck size={19} /> 환자 확인본 만들기
       </button>
-      {!assessmentReady && <p className={styles.requirement}>활력징후·AVPU·CPSS와 LNT/FAT를 확인하면 다음 단계로 진행할 수 있습니다.</p>}
+      {!assessmentReady && <p className={styles.requirement}>최초 활력징후·AVPU와 현장 PTT 3단계를 확인하면 다음 단계로 진행할 수 있습니다.</p>}
     </>
   );
 
@@ -493,7 +457,7 @@ export default function MobileApp() {
         <div className={styles.cardEyebrow}><UserRound size={15} /> 현재 환자 상태 <SourceTag tone={stageAtLeast(state.stage, "summary-ready") ? "confirmed" : "neutral"}>{stageAtLeast(state.stage, "summary-ready") ? "구급대원 확인본" : "작성 중"}</SourceTag></div>
         <h1>{SCENARIO.patient}</h1>
         <p>{SCENARIO.chiefComplaint}</p>
-        <div className={styles.summaryFlags}><span>급성 뇌졸중 의심</span><span>CPSS 양성</span><span>Pre-KTAS {SCENARIO.preKtas}</span></div>
+        <div className={styles.summaryFlags}><span>{SCENARIO.impression}</span><span>확정 진단 아님</span><span>AVPU {state.avpu}</span></div>
       </section>
 
       <section className={styles.compactVitals}>
@@ -501,17 +465,17 @@ export default function MobileApp() {
         <div><span>PR</span><strong>{state.vitals.pr || "—"}</strong><small>회/분</small></div>
         <div><span>RR</span><strong>{state.vitals.rr || "—"}</strong><small>회/분</small></div>
         <div><span>SpO₂</span><strong>{state.vitals.spo2 || "—"}</strong><small>%</small></div>
-        <div><span>BST</span><strong>{state.vitals.glucose || "—"}</strong><small>mg/dL</small></div>
-        <div><span>AVPU</span><strong>{state.avpu}</strong><small>{timeFor("최초 활력징후 확인", "뇌졸중 선별정보 확인")}</small></div>
+        <div><span>혈당</span><strong>{state.vitals.glucose || "—"}</strong><small>mg/dL</small></div>
+        <div><span>AVPU</span><strong>{state.avpu}</strong><small>{timeFor("최초 활력징후 확인", "심혈관 중점평가 확인")}</small></div>
       </section>
 
       <section className={styles.detailList}>
-        <div><span>LNT</span><strong>{SCENARIO.lnt}</strong><small>{SCENARIO.lntSource} · 자녀 진술</small></div>
-        <div><span>FAT</span><strong>{SCENARIO.fat}</strong><small>{SCENARIO.fatSource} · 이웃 진술</small></div>
-        <div><span>CPSS</span><strong>얼굴 우측 · 팔 우측 · 말 어눌함</strong><small>구급대원 직접 확인</small></div>
-        <div><span>병력</span><strong>{SCENARIO.history.join(" · ")}</strong><small>환자·약 봉투 확인</small></div>
-        <div data-tone="unknown"><span>복용약</span><strong>{SCENARIO.medication}</strong><small>빈칸이 아니라 미상으로 전달</small></div>
-        <div data-tone="unknown"><span>알레르기</span><strong>{SCENARIO.allergy}</strong><small>확인 가능한 정보 없음</small></div>
+        <div><span>발생시각</span><strong>{SCENARIO.onset}</strong><small>{SCENARIO.onsetSource}</small></div>
+        <div><span>증상</span><strong>{SCENARIO.symptoms.join(" · ")}</strong><small>환자 진술·현장 관찰</small></div>
+        <div><span>흉통</span><strong>NRS {SCENARIO.pain.severityNrs} · {SCENARIO.pain.region} · {SCENARIO.pain.radiation} 방사</strong><small>구급대원 확인</small></div>
+        <div><span>병력</span><strong>{SCENARIO.history.join(" · ")}</strong><small>환자 진술 · 추가 확인 필요</small></div>
+        <div data-tone="unknown"><span>복용약</span><strong>{SCENARIO.medication}</strong><small>진술 기반 · 약제 확인 필요</small></div>
+        <div data-tone="unknown"><span>미상 항목</span><strong>{SCENARIO.unresolvedItems.join(" · ")}</strong><small>임의로 채우지 않고 그대로 전달</small></div>
       </section>
 
       {state.stage === "summary-ready" && (
@@ -636,7 +600,7 @@ export default function MobileApp() {
 
                   <div className={styles.candidateActions}>
                     {candidateState === "available" && canStartRequest && (
-                      <button className={styles.candidatePrimary} onClick={() => { dispatch({ type: "REQUEST_HOSPITAL", hospitalId: hospital.id }); notify(`${hospital.name}에 수용 문의를 보냈습니다.`); }}>
+                      <button aria-label={`${hospital.name}에 수용 문의`} className={styles.candidatePrimary} onClick={() => { dispatch({ type: "REQUEST_HOSPITAL", hospitalId: hospital.id }); notify(`${hospital.name}에 수용 문의를 보냈습니다.`); }}>
                         <Send size={16} /> 이 병원에 수용 문의
                       </button>
                     )}
@@ -647,7 +611,7 @@ export default function MobileApp() {
                     )}
                     {candidateState === "info" && (
                       <button className={styles.candidatePrimary} data-tone="amber" onClick={() => dispatch({ type: "ANSWER_INFO" })}>
-                        <Send size={16} /> 미상 항목 회신
+                        <Send size={16} /> 확인값·미상 구분해 회신
                       </button>
                     )}
                     {candidateState === "accepted" && (
@@ -699,17 +663,44 @@ export default function MobileApp() {
           <i className={styles.routeLine} />
           <span className={styles.hospitalMarker}><Hospital size={18} /></span>
         </div>
-        <div className={styles.etaPanel}><span>예상 도착</span><strong>{selectedHospital?.eta ?? "35분"}</strong><small>{selectedHospital?.name}</small></div>
+        <div className={styles.etaPanel}><span>예상 도착</span><strong>{selectedHospital?.eta ?? "경로 조회 전"}</strong><small>{selectedHospital?.name ?? "이송지 미확정"}</small></div>
       </section>
       <section className={styles.transportStatus}>
         <div><span>이송 시작</span><strong>{timeFor("이송 시작")}</strong></div>
-        <div><span>최근 갱신</span><strong>{state.reassessmentSaved ? timeFor("이송 중 재평가") : timeFor("이송 시작")}</strong></div>
+        <div><span>최근 갱신</span><strong>{state.reassessmentSaved ? timeFor("이송 중 재평가", "이송 전 재평가 확인", "추가정보 회신") : timeFor("이송 시작")}</strong></div>
         <div><span>상태 공유</span><strong>{state.reassessmentSaved ? "병원 전달됨" : "최초 상태"}</strong></div>
       </section>
       <section className={styles.recheckCard}>
-        <div className={styles.sectionTitle}><div><Activity size={18} /><strong>이송 중 재평가</strong></div><StatusBadge tone={state.reassessmentSaved ? "green" : "slate"}>{state.reassessmentSaved ? "저장됨" : "미기록"}</StatusBadge></div>
-        <div className={styles.recheckValues}><span>AVPU <b>A</b></span><span>BP <b>180/98</b> mmHg</span><span>SpO₂ <b>97%</b></span><span>증상 <b>지속</b></span></div>
-        {!state.reassessmentSaved && <button onClick={() => dispatch({ type: "SAVE_REASSESSMENT" })}><RefreshCw size={17} /> 재평가 기록</button>}
+        <div className={styles.sectionTitle}><div><Activity size={18} /><strong>최근 재평가</strong></div><StatusBadge tone={state.reassessmentSaved ? "green" : "slate"}>{state.reassessmentSaved ? "저장됨" : "미기록"}</StatusBadge></div>
+        <div className={styles.recheckValues}><span>AVPU <b>A</b></span><span>BP <b>{state.reassessmentVitals?.bp ?? "—"}</b> mmHg</span><span>SpO₂ <b>{state.reassessmentVitals ? `${state.reassessmentVitals.spo2}%` : "—"}</b></span><span>증상 <b>{state.reassessmentSaved ? state.reassessmentSummary : "확인 전"}</b></span></div>
+        {!state.reassessmentSaved && (
+          <>
+            <button
+              className={styles.pttButton}
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={finishVoice}
+              onKeyDown={handleVoiceKeyDown}
+              onKeyUp={handleVoiceKeyUp}
+            ><Mic size={18} /> 재평가 누르고 말하기</button>
+            <button onClick={() => setShowReassessmentForm((current) => !current)}><RefreshCw size={17} /> 측정값 직접 입력</button>
+            {showReassessmentForm && (
+              <div className={styles.reassessmentForm}>
+                {vitalFields.map((field) => (
+                  <label key={field.key}>
+                    <span>{field.label}</span>
+                    <div><input value={reassessmentDraft[field.key]} onChange={(event) => setReassessmentDraft((current) => ({ ...current, [field.key]: event.target.value }))} /><small>{field.unit}</small></div>
+                  </label>
+                ))}
+                <label className={styles.trendField}><span>증상 변화</span><input value={reassessmentTrend} onChange={(event) => setReassessmentTrend(event.target.value)} /></label>
+                <button className={styles.saveReassessment} onClick={() => {
+                  dispatch({ type: "SAVE_REASSESSMENT", values: reassessmentDraft, symptomTrend: reassessmentTrend });
+                  setShowReassessmentForm(false);
+                }}><Check size={17} /> 측정시각과 함께 저장</button>
+              </div>
+            )}
+          </>
+        )}
       </section>
       <button className={styles.fullAction} onClick={() => { transition("hospital-arrived", "구급대원", "병원 도착", `${selectedHospital?.name} · GPS 및 사용자 확인`, "teal"); setTab("handoff"); }}>
         <Hospital size={19} /> 병원 도착
@@ -728,11 +719,12 @@ export default function MobileApp() {
         <dl>
           <div><dt>환자</dt><dd>{SCENARIO.patient} · {SCENARIO.living}</dd></div>
           <div><dt>주증상</dt><dd>{SCENARIO.chiefComplaint}</dd></div>
-          <div><dt>LNT / FAT</dt><dd>{SCENARIO.lnt} / {SCENARIO.fat}</dd></div>
-          <div><dt>CPSS</dt><dd>얼굴 우측 · 팔 우측 · 말 어눌함</dd></div>
+          <div><dt>발생시각</dt><dd>{SCENARIO.onset} · {SCENARIO.onsetSource}</dd></div>
+          <div><dt>동반증상</dt><dd>{SCENARIO.symptoms.join(" · ")}</dd></div>
           <div><dt>최초 활력</dt><dd>BP {state.vitals.bp} · PR {state.vitals.pr} · SpO₂ {state.vitals.spo2}%</dd></div>
-          <div><dt>재평가</dt><dd>{state.reassessmentSaved ? "AVPU A · BP 180/98 · 증상 지속" : "추가 기록 없음"}</dd></div>
-          <div><dt>미상 항목</dt><dd>항응고제 · 알레르기</dd></div>
+          <div><dt>재평가</dt><dd>{state.reassessmentVitals ? `AVPU A · BP ${state.reassessmentVitals.bp} · SpO₂ ${state.reassessmentVitals.spo2}% · ${state.reassessmentSummary}` : "추가 기록 없음"}</dd></div>
+          <div><dt>처치</dt><dd>{CARDIO_DEMO_HANDOFF.sections.treatment.join(" · ")}</dd></div>
+          <div><dt>미상 항목</dt><dd>{SCENARIO.unresolvedItems.join(" · ")}</dd></div>
         </dl>
       </section>
       {state.stage === "hospital-arrived" && (
@@ -742,11 +734,18 @@ export default function MobileApp() {
       )}
       {state.stage === "handoff-sent" && <div className={styles.waitingBox}><span className={styles.pulseDot} /><div><strong>병원 인수 확인을 기다리고 있습니다</strong><small>병원 담당자가 인수해야 사건이 종료됩니다.</small></div></div>}
       {state.stage === "complete" && (
-        <section className={styles.completeDetails}>
-          <div><span>인수자</span><strong>{state.handoffRole} {state.handoffReceiver}</strong></div>
-          <div><span>인수시각</span><strong>{timeFor("환자 인수 확인")}</strong></div>
-          <div><span>사건상태</span><strong>환자 인수 완료</strong></div>
-        </section>
+        <>
+          <section className={styles.completeDetails}>
+            <div><span>인수자</span><strong>{state.handoffRole} {state.handoffReceiver}</strong></div>
+            <div><span>인수시각</span><strong>{timeFor("환자 인수 확인")}</strong></div>
+            <div><span>사건상태</span><strong>환자 인수 완료</strong></div>
+          </section>
+          <button className={styles.fullAction} onClick={() => {
+            const url = new URL(window.location.href);
+            url.searchParams.set("view", "report");
+            window.location.assign(url.toString());
+          }}><FileText size={19} /> 구급활동 기록 검토</button>
+        </>
       )}
     </>
   );
@@ -796,7 +795,7 @@ export default function MobileApp() {
               <h2>{callingHospital.name}</h2>
               <div className={styles.callSummary}>
                 <span><strong>{SCENARIO.patient}</strong><small>{SCENARIO.chiefComplaint}</small></span>
-                <span><strong>LNT {SCENARIO.lnt}</strong><small>CPSS 얼굴·팔 우측, 말 어눌함</small></span>
+                <span><strong>발생 {SCENARIO.onset}</strong><small>{SCENARIO.symptoms.join(" · ")}</small></span>
               </div>
               <p className={styles.callHint}><AlertTriangle size={15} /> 전화 연결만으로 수용 확정이 아닙니다. 병원의 수용 가능 회신을 별도로 확인하세요.</p>
               <div className={styles.callResults}>
@@ -816,7 +815,7 @@ export default function MobileApp() {
         )}
 
         {voiceMode && (
-          <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록" aria-busy={voiceMode === "processing"}>
+          <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록" aria-busy={voiceMode === "processing"} onPointerUp={() => { if (voiceModeRef.current === "listening") finishVoice(); }} onPointerCancel={() => { if (voiceModeRef.current === "listening") finishVoice(); }}>
             <button className={styles.voiceClose} aria-label="음성 입력 닫기" onClick={cancelVoice}><X size={19} /></button>
             {voiceMode === "listening" ? (
               <div className={styles.listeningPanel}>
@@ -835,27 +834,50 @@ export default function MobileApp() {
                 <span className={styles.micPulse}><Activity size={27} /></span>
                 <h2>환자 상태를 정리하고 있습니다</h2>
                 <p>말한 내용을 구조화하고 확인할 항목을 준비합니다.</p>
-                <div className={styles.liveTranscript}>{FALLBACK_VOICE_RESULT.transcript}</div>
+                <div className={styles.liveTranscript}>{nextPttUpdate?.transcript ?? "입력 내용을 확인하고 있습니다."}</div>
                 <button onClick={cancelVoice}>처리 취소</button>
               </div>
-            ) : (
+            ) : voiceResult ? (
               <div className={styles.voiceReview}>
                 <span className={styles.reviewIcon}><ClipboardCheck size={25} /></span>
-                <h2>말한 내용을 확인하세요</h2>
-                <p>{voiceResult.usedFallback ? "확인할 수 없는 항목은 시연 예제값으로 보완했습니다. 확인하기 전에는 기록되지 않습니다." : "로컬 에이전트가 정리한 후보입니다. 확인하기 전에는 환자 기록이나 병원에 전달되지 않습니다."}</p>
-                <div className={styles.transcriptBox}>“{voiceResult.transcript}”</div>
+                <h2>{voiceResult.update.title} 변경안을 확인하세요</h2>
+                <p>말한 내용에서 정리한 항목입니다. 선택한 값만 구급대원 확인 정보로 반영됩니다.</p>
+                <div className={styles.transcriptBox}>“{voiceResult.update.transcript}”</div>
                 <div className={styles.extractedList}>
-                  <div><span>AVPU</span><strong>{voiceResult.structured.avpu}</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>얼굴 처짐</span><strong>{voiceResult.structured.face}</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>팔 위약</span><strong>{voiceResult.structured.arm}</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>말하기</span><strong>{voiceResult.structured.speech}</strong><SourceTag>확인 대기</SourceTag></div>
-                  <div><span>LNT / FAT</span><strong>{voiceResult.structured.lnt} / {voiceResult.structured.fat}</strong><SourceTag>확인 대기</SourceTag></div>
+                  {voiceResult.update.proposals.map((proposal) => {
+                    const accepted = acceptedProposalIds.includes(proposal.id);
+                    return (
+                      <button
+                        className={accepted ? styles.choiceActive : ""}
+                        onClick={() => setAcceptedProposalIds((current) => current.includes(proposal.id) ? current.filter((id) => id !== proposal.id) : [...current, proposal.id])}
+                        key={proposal.id}
+                        aria-pressed={accepted}
+                      >
+                        <span>{proposal.label}</span>
+                        <strong>{proposal.displayValue}</strong>
+                        <SourceTag tone={reviewTone(proposal.status)}>{proposal.status === "unknown" ? "미상" : proposal.status === "unconfirmed" ? "진술 기반" : proposal.status === "pending_review" ? "판단 확인" : "확인 후보"}</SourceTag>
+                      </button>
+                    );
+                  })}
                 </div>
                 <div className={styles.reviewActions}>
                   <button onClick={cancelVoice}>취소</button>
-                  <button onClick={() => { dispatch({ type: "CONFIRM_VOICE" }); setVoicePhase(null); notify("구급대원 확인값으로 반영했습니다."); }}><Check size={18} /> 현장 기록에 반영</button>
+                  <button disabled={!acceptedProposalIds.length} onClick={() => {
+                    const allIds = voiceResult.update.proposals.map((proposal) => proposal.id);
+                    dispatch({
+                      type: "CONFIRM_PTT",
+                      updateId: voiceResult.update.id,
+                      acceptedProposalIds,
+                      rejectedProposalIds: allIds.filter((id) => !acceptedProposalIds.includes(id)),
+                    });
+                    setVoicePhase(null);
+                    setVoiceResult(null);
+                    notify(`${acceptedProposalIds.length}개 항목을 확인값으로 반영했습니다.`);
+                  }}><Check size={18} /> 선택 항목 반영</button>
                 </div>
               </div>
+            ) : (
+              <div className={styles.listeningPanel}><AlertTriangle size={28} /><h2>변경안을 불러오지 못했습니다</h2><p>기존 환자정보는 변경되지 않았습니다.</p><button onClick={cancelVoice}>닫기</button></div>
             )}
           </div>
         )}
@@ -867,14 +889,14 @@ export default function MobileApp() {
         <p>구급대원이 확인한 정보와 버튼 입력 시각만 공통 사건에 반영됩니다.</p>
         <div className={styles.guidePatient}>
           <span><UserRound size={18} /></span>
-          <div><strong>{SCENARIO.patient}</strong><small>{SCENARIO.chiefComplaint}</small></div>
+          <div><strong>{state.stage === "assigned" || state.stage === "enroute" ? SCENARIO.reportedPatient : SCENARIO.patient}</strong><small>{state.stage === "assigned" || state.stage === "enroute" ? SCENARIO.reportedComplaint : SCENARIO.chiefComplaint}</small></div>
         </div>
         <div className={styles.guideEvents}>
           {[...state.events].reverse().slice(0, 4).map((event) => (
             <div key={event.id}><time>{event.time}</time><span><strong>{event.title}</strong><small>{event.actor}</small></span></div>
           ))}
         </div>
-        <div className={styles.guideRule}><ShieldCheck size={17} /><span><strong>자동 판정하지 않습니다</strong><small>AI는 정리 후보를 만들고 구급대원이 확인합니다.</small></span></div>
+        <div className={styles.guideRule}><ShieldCheck size={17} /><span><strong>확인한 값만 반영됩니다</strong><small>말한 내용은 변경안으로 정리되고 구급대원이 확인해야 저장됩니다.</small></span></div>
       </aside>
     </div>
   );

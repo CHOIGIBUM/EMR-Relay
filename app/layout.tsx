@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
 
-const title = "EMS Relay | 급성 뇌졸중 의심 환자 정보 연결";
+const title = "EMS Relay | 심혈관 응급환자 실시간 인계";
 const description =
-  "구급대원, 이송조정 상황실, 병원이 하나의 확인된 환자정보와 타임라인을 공유하는 응급환자 이송·인계 MVP";
+  "구급대원, 이송조정 상황실, 병원이 확인된 환자정보와 타임라인을 공유하고 구급활동 기록 초안까지 연결하는 응급환자 이송·인계 MVP";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();

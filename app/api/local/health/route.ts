@@ -7,7 +7,7 @@ export async function GET(): Promise<Response> {
     services: {
       agent: {
         status: "available",
-        provider: "deterministic-local-parser",
+        provider: "local-structured-voice-fixture",
       },
       hospitals: {
         status: "available",

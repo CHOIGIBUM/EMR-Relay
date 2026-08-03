@@ -35,11 +35,12 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 export default function HospitalConsole() {
   const { state, dispatch, selectedHospital } = useDemo();
   const [modal, setModal] = useState<Modal>(null);
-  const [infoFields, setInfoFields] = useState<string[]>(["항응고제 복용 여부"]);
+  const [infoFields, setInfoFields] = useState<string[]>(["재평가 활력징후", "항혈소판제·항응고제 복용"]);
   const [declineReason, setDeclineReason] = useState("현재 진료 여력 부족");
   const [receiver, setReceiver] = useState("이○○");
   const [receiverRole, setReceiverRole] = useState("간호사");
   const requestVisible = stageAtLeast(state.stage, "hospital-requested") || state.stage === "declined";
+  const arrivedAtHospital = stageAtLeast(state.stage, "hospital-arrived") && state.stage !== "declined";
   const timeFor = (...titles: string[]) =>
     [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
 
@@ -52,7 +53,7 @@ export default function HospitalConsole() {
     if (state.stage === "info-requested") return { label: "추가정보 대기", tone: "amber" as const, detail: "요청 항목이 구급대에 전달되었습니다." };
     if (state.stage === "info-sent") return { label: "추가정보 도착", tone: "teal" as const, detail: "구급대 답변을 반영해 다시 검토하세요." };
     if (state.stage === "declined") return { label: "수용 곤란 회신", tone: "red" as const, detail: "구급대가 사유를 확인하고 다음 병원을 검토합니다." };
-    if (state.stage === "accepted" || state.stage === "destination-confirmed") return { label: "수용 확정", tone: "green" as const, detail: "구급대의 이송지 확인을 기다립니다." };
+    if (state.stage === "accepted" || state.stage === "destination-confirmed") return { label: "수용 가능 회신", tone: "green" as const, detail: "구급대의 이송지 확인을 기다립니다." };
     if (state.stage === "transporting") return { label: "환자 이송 중", tone: "teal" as const, detail: "ETA와 재평가 정보를 확인하세요." };
     if (state.stage === "hospital-arrived") return { label: "병원 도착", tone: "teal" as const, detail: "구급대 최종 인계를 기다립니다." };
     if (state.stage === "handoff-sent") return { label: "인수 확인 필요", tone: "amber" as const, detail: "최종 인계 카드를 확인하고 환자를 인수하세요." };
@@ -95,7 +96,7 @@ export default function HospitalConsole() {
           {requestVisible ? (
             <button className={styles.queueCard}>
               <i data-tone={status.tone} />
-              <div><span><strong>{SCENARIO.id}</strong><time>{state.events.at(-1)?.time}</time></span><b>{SCENARIO.patient}</b><p>{SCENARIO.chiefComplaint}</p><small><Clock3 size={13} /> LNT {SCENARIO.lnt} · ETA {selectedHospital?.eta}</small></div>
+              <div><span><strong>{SCENARIO.id}</strong><time>{state.events.at(-1)?.time}</time></span><b>{SCENARIO.patient}</b><p>{SCENARIO.chiefComplaint}</p><small><Clock3 size={13} /> 발생 {SCENARIO.onset} · {arrivedAtHospital ? "도착 확인" : `ETA ${selectedHospital?.eta ?? "—"}`}</small></div>
               <ChevronRight size={18} />
             </button>
           ) : (
@@ -114,8 +115,8 @@ export default function HospitalConsole() {
           ) : (
             <>
               <header className={styles.caseHeader}>
-                <div><span>수용 문의</span><div><h1>{SCENARIO.id}</h1><Badge tone={status.tone}>{status.label}</Badge></div><p><Ambulance size={15} /> 홍천소방서 구급1대 <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 요청 {timeFor("병원 수용 문의")}</p></div>
-                <div className={styles.eta}><span>예상 도착</span><strong>{selectedHospital?.eta ?? "35분"}</strong><small>{state.stage === "transporting" ? "이송 중" : "현장 대기"}</small></div>
+                <div><span>수용 문의</span><div><h1>{SCENARIO.id}</h1><Badge tone={status.tone}>{status.label}</Badge></div><p><Ambulance size={15} /> {SCENARIO.unit} <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 요청 {timeFor("병원 수용 문의")}</p></div>
+                <div className={styles.eta}><span>{arrivedAtHospital ? "도착 상태" : "예상 도착"}</span><strong>{arrivedAtHospital ? "도착" : selectedHospital?.eta ?? "경로 조회 전"}</strong><small>{arrivedAtHospital ? timeFor("병원 도착") : state.stage === "transporting" ? "이송 중" : "현장 대기"}</small></div>
               </header>
 
               <div className={styles.caseScroll}>
@@ -127,23 +128,23 @@ export default function HospitalConsole() {
                 <section className={styles.patientCard}>
                   <div className={styles.sectionTitle}><div><HeartPulse size={19} /><h2>환자 핵심정보</h2></div><Badge tone="teal">구급대원 확인본</Badge></div>
                   <div className={styles.patientLead}>
-                    <div><span>급성 뇌졸중 의심</span><h3>{SCENARIO.patient}</h3><p>{SCENARIO.chiefComplaint}</p></div>
-                    <div><span>CPSS 양성</span><span>Pre-KTAS {SCENARIO.preKtas}</span><span>AVPU {state.avpu}</span></div>
+                    <div><span>{SCENARIO.impression}</span><h3>{SCENARIO.patient}</h3><p>{SCENARIO.chiefComplaint}</p></div>
+                    <div><span>확정 진단 아님</span><span>흉통 NRS {SCENARIO.pain.severityNrs}</span><span>AVPU {state.avpu}</span></div>
                   </div>
                   <div className={styles.vitals}>
                     <div><span>혈압 BP</span><strong>{state.vitals.bp}</strong><small>mmHg</small></div>
                     <div><span>맥박 PR</span><strong>{state.vitals.pr}</strong><small>회/분</small></div>
                     <div><span>호흡수 RR</span><strong>{state.vitals.rr}</strong><small>회/분</small></div>
                     <div><span>SpO₂</span><strong>{state.vitals.spo2}</strong><small>%</small></div>
-                    <div><span>혈당 BST</span><strong>{state.vitals.glucose}</strong><small>mg/dL</small></div>
+                    <div><span>혈당</span><strong>{state.vitals.glucose}</strong><small>mg/dL</small></div>
                   </div>
                   <div className={styles.clinicalRows}>
-                    <div><span>LNT</span><strong>{SCENARIO.lnt}</strong><small>{SCENARIO.lntSource} · 자녀 진술</small></div>
-                    <div><span>FAT</span><strong>{SCENARIO.fat}</strong><small>{SCENARIO.fatSource} · 이웃 진술</small></div>
-                    <div><span>CPSS</span><strong>얼굴 우측 · 팔 우측 · 말 어눌함</strong><small>구급대원 직접 확인</small></div>
-                    <div><span>기저질환</span><strong>{SCENARIO.history.join(" · ")}</strong><small>환자·약 봉투 확인</small></div>
-                    <div data-tone="unknown"><span>복용약</span><strong>{state.infoReply ?? SCENARIO.medication}</strong><small>{state.infoReply ? `${timeFor("추가정보 회신")} 구급대 회신` : "현재 미상"}</small></div>
-                    <div data-tone="unknown"><span>알레르기</span><strong>{SCENARIO.allergy}</strong><small>미상으로 전달됨</small></div>
+                    <div><span>증상 발생</span><strong>{SCENARIO.onset}</strong><small>{SCENARIO.onsetSource}</small></div>
+                    <div><span>동반증상</span><strong>{SCENARIO.symptoms.join(" · ")}</strong><small>환자 진술·현장 관찰</small></div>
+                    <div><span>흉통</span><strong>{SCENARIO.pain.region} · {SCENARIO.pain.radiation} 방사</strong><small>NRS {SCENARIO.pain.severityNrs} · {SCENARIO.pain.quality}</small></div>
+                    <div><span>기저질환</span><strong>{SCENARIO.history.join(" · ")}</strong><small>환자·보호자 진술</small></div>
+                    <div data-tone="unknown"><span>복용약</span><strong>{SCENARIO.medication}</strong><small>진술 기반 · 약제 확인 필요</small></div>
+                    <div data-tone="unknown"><span>미상 항목</span><strong>{SCENARIO.unresolvedItems.join(" · ")}</strong><small>임의로 보완하지 않음</small></div>
                   </div>
                 </section>
 
@@ -156,8 +157,8 @@ export default function HospitalConsole() {
                 {stageAtLeast(state.stage, "transporting") && state.stage !== "declined" && (
                   <section className={styles.incomingCard}>
                     <div className={styles.sectionTitle}><div><Navigation size={19} /><h2>도착 예정</h2></div><Badge tone={state.stage === "complete" ? "green" : "teal"}>{STAGE_LABEL[state.stage]}</Badge></div>
-                    <div className={styles.routePanel}><div className={styles.map}><span><Ambulance size={17} /></span><i /><b><Hospital size={17} /></b></div><div><span>현재 ETA</span><strong>{selectedHospital?.eta}</strong><small>{SCENARIO.locationShort} → {selectedHospital?.name}</small></div></div>
-                    {state.reassessmentSaved && <div className={styles.updateLine}><Activity size={16} /><strong>{timeFor("이송 중 재평가")} 재평가</strong><span>AVPU A · BP 180/98 mmHg · SpO₂ 97% · 증상 지속</span></div>}
+                    <div className={styles.routePanel}><div className={styles.map}><span><Ambulance size={17} /></span><i /><b><Hospital size={17} /></b></div><div><span>{arrivedAtHospital ? "도착" : "현재 ETA"}</span><strong>{arrivedAtHospital ? "도착 확인" : selectedHospital?.eta ?? "—"}</strong><small>{SCENARIO.locationShort} → {selectedHospital?.name}</small></div></div>
+                    {state.reassessmentVitals && <div className={styles.updateLine}><Activity size={16} /><strong>{timeFor("이송 중 재평가", "이송 전 재평가 확인", "추가정보 회신")} 재평가</strong><span>AVPU A · BP {state.reassessmentVitals.bp} mmHg · SpO₂ {state.reassessmentVitals.spo2}% · {state.reassessmentSummary}</span></div>}
                   </section>
                 )}
 
@@ -167,10 +168,10 @@ export default function HospitalConsole() {
                     <dl>
                       <div><dt>환자</dt><dd>{SCENARIO.patient} · {SCENARIO.living}</dd></div>
                       <div><dt>주증상</dt><dd>{SCENARIO.chiefComplaint}</dd></div>
-                      <div><dt>LNT / FAT</dt><dd>{SCENARIO.lnt} / {SCENARIO.fat}</dd></div>
+                      <div><dt>발생시각</dt><dd>{SCENARIO.onset} · {SCENARIO.onsetSource}</dd></div>
                       <div><dt>최초 활력</dt><dd>BP {state.vitals.bp} · PR {state.vitals.pr} · SpO₂ {state.vitals.spo2}%</dd></div>
-                      <div><dt>재평가</dt><dd>{state.reassessmentSaved ? "AVPU A · BP 180/98 · 증상 지속" : "추가 기록 없음"}</dd></div>
-                      <div><dt>미상</dt><dd>항응고제 · 알레르기</dd></div>
+                      <div><dt>재평가</dt><dd>{state.reassessmentVitals ? `AVPU A · BP ${state.reassessmentVitals.bp} · ${state.reassessmentSummary}` : "추가 기록 없음"}</dd></div>
+                      <div><dt>미상</dt><dd>{SCENARIO.unresolvedItems.join(" · ")}</dd></div>
                     </dl>
                   </section>
                 )}
@@ -203,7 +204,7 @@ export default function HospitalConsole() {
           )}
 
           {(state.stage === "transporting" || state.stage === "hospital-arrived") && (
-            <div className={styles.transportAction}><Navigation size={25} /><strong>{STAGE_LABEL[state.stage]}</strong><p>ETA {selectedHospital?.eta}<br />최근 갱신 {state.reassessmentSaved ? timeFor("이송 중 재평가") : timeFor("이송 시작")}</p></div>
+            <div className={styles.transportAction}><Navigation size={25} /><strong>{STAGE_LABEL[state.stage]}</strong><p>{arrivedAtHospital ? `도착 ${timeFor("병원 도착")}` : `ETA ${selectedHospital?.eta ?? "—"}`}<br />최근 갱신 {state.reassessmentSaved ? timeFor("이송 중 재평가", "이송 전 재평가 확인", "추가정보 회신") : timeFor("이송 시작")}</p></div>
           )}
 
           {state.stage === "handoff-sent" && (
@@ -232,7 +233,7 @@ export default function HospitalConsole() {
               <>
                 <span className={styles.modalIcon}><MessageSquareText size={24} /></span><h2>추가정보 요청</h2><p>현재 판단에 필요한 항목만 선택하세요.</p>
                 <div className={styles.infoChoices}>
-                  {["항응고제 복용 여부", "LNT 재확인", "최근 활력징후", "기존 뇌졸중 후유장애"].map((field) => <button className={infoFields.includes(field) ? styles.infoSelected : ""} onClick={() => toggleInfo(field)} key={field}><span>{infoFields.includes(field) ? <Check size={15} /> : null}</span>{field}</button>)}
+                  {["재평가 활력징후", "12유도 심전도 상세 소견", "항혈소판제·항응고제 복용", "약물 알레르기"].map((field) => <button className={infoFields.includes(field) ? styles.infoSelected : ""} onClick={() => toggleInfo(field)} key={field}><span>{infoFields.includes(field) ? <Check size={15} /> : null}</span>{field}</button>)}
                 </div>
                 <button className={styles.modalPrimary} disabled={!infoFields.length} onClick={() => { dispatch({ type: "REQUEST_INFO", fields: infoFields }); setModal(null); }}><Send size={18} /> 선택 항목 요청</button>
               </>
