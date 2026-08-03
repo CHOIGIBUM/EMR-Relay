@@ -21,4 +21,3 @@ export function completedInitialAssessmentSteps(state: ConfirmedState): Array<1 
     INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP[step].every((path) => hasConfirmedValue(state, path))
   ));
 }
-
