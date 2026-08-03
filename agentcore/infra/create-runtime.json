@@ -1,0 +1,42 @@
+{
+  "agentRuntimeName": "EMSRelayProposal",
+  "agentRuntimeArtifact": {
+    "codeConfiguration": {
+      "code": {
+        "s3": {
+          "bucket": "bedrock-agentcore-code-462993243992-us-west-2",
+          "prefix": "EMSRelayProposal/ems-relay-agentcore.zip",
+          "versionId": "FC60tXDFsIiXZnNCGX4cDxucncgKTM5L"
+        }
+      },
+      "runtime": "PYTHON_3_12",
+      "entryPoint": [
+        "main.py"
+      ]
+    }
+  },
+  "roleArn": "arn:aws:iam::462993243992:role/EMSRelayAgentCoreRuntimeRole",
+  "networkConfiguration": {
+    "networkMode": "PUBLIC"
+  },
+  "description": "Proposal-only LangGraph workflow for EMS Relay clinical update review",
+  "protocolConfiguration": {
+    "serverProtocol": "HTTP"
+  },
+  "lifecycleConfiguration": {
+    "idleRuntimeSessionTimeout": 300,
+    "maxLifetime": 1800
+  },
+  "environmentVariables": {
+    "AWS_REGION": "us-west-2",
+    "BEDROCK_REGION": "us-west-2",
+    "BEDROCK_MODEL_ID": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "BEDROCK_TEMPERATURE": "0.3",
+    "BEDROCK_MAX_TOKENS": "1800"
+  },
+  "tags": {
+    "Project": "EMSRelay",
+    "Component": "ProposalAgent",
+    "Environment": "Hackathon"
+  }
+}

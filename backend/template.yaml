@@ -1,83 +1,218 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: EMS Relay serverless backend - API Gateway, Lambda, Bedrock Converse, DynamoDB
+Description: EMS Relay authenticated serverless command, realtime, speech, HITL, report and FHIR backend
 
 Parameters:
   BedrockModelId:
     Type: String
     Default: global.anthropic.claude-haiku-4-5-20251001-v1:0
-    Description: Bedrock model ID or inference profile ID available to the account
   BedrockRegion:
     Type: String
     Default: us-west-2
-    Description: AWS Region used by the Bedrock Runtime client
+  AgentRuntimeArn:
+    Type: String
+    Default: arn:aws:bedrock-agentcore:us-west-2:462993243992:runtime/EMSRelayProposal-plEVqA20bj
+    Description: Optional AgentCore Runtime ARN. Leave empty only when explicit direct Bedrock fallback is enabled.
+  AgentRuntimeEndpointArn:
+    Type: String
+    Default: arn:aws:bedrock-agentcore:us-west-2:462993243992:runtime/EMSRelayProposal-plEVqA20bj/runtime-endpoint/DEFAULT
+    Description: AgentCore runtime endpoint ARN authorized together with the parent runtime.
+  AgentRuntimeQualifier:
+    Type: String
+    Default: ""
+  AllowDirectBedrockFallback:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+  HealthLakeDatastoreArn:
+    Type: String
+    Default: ""
+  HealthLakeDatastoreEndpoint:
+    Type: String
+    Default: ""
   CorsOrigins:
     Type: CommaDelimitedList
     Default: "http://localhost:3000"
-    Description: Comma-separated frontend origins allowed by the HTTP API.
+  CognitoCallbackUrls:
+    Type: CommaDelimitedList
+    Default: "http://localhost:3000/auth/callback"
+  CognitoLogoutUrls:
+    Type: CommaDelimitedList
+    Default: "http://localhost:3000"
   ExternalApiSecretName:
     Type: String
     Default: ems-relay/external-api-keys
-    AllowedValues:
-      - ems-relay/external-api-keys
-    Description: Secrets Manager secret containing external API credentials, encrypted with the AWS managed key
+    AllowedValues: [ems-relay/external-api-keys]
+
+Conditions:
+  AgentCoreConfigured: !Not [!Equals [!Ref AgentRuntimeArn, ""]]
+  DirectBedrockFallbackEnabled: !Equals [!Ref AllowDirectBedrockFallback, "true"]
+  HealthLakeConfigured: !And
+    - !Not [!Equals [!Ref HealthLakeDatastoreArn, ""]]
+    - !Not [!Equals [!Ref HealthLakeDatastoreEndpoint, ""]]
 
 Globals:
   Function:
     Runtime: nodejs22.x
-    Architectures:
-      - arm64
+    Architectures: [arm64]
     MemorySize: 512
     Timeout: 30
     Tracing: Active
     Environment:
       Variables:
         TABLE_NAME: !Ref CaseTable
+        CONNECTION_TABLE_NAME: !Ref ConnectionTable
+        REPORT_BUCKET: !Ref ReportBucket
         BEDROCK_MODEL_ID: !Ref BedrockModelId
         BEDROCK_REGION: !Ref BedrockRegion
+        AGENT_RUNTIME_ARN: !Ref AgentRuntimeArn
+        AGENT_RUNTIME_QUALIFIER: !Ref AgentRuntimeQualifier
+        ALLOW_DIRECT_BEDROCK_FALLBACK: !Ref AllowDirectBedrockFallback
         EXTERNAL_API_SECRET_NAME: !Ref ExternalApiSecretName
+        TRANSCRIBE_REGION: !Ref AWS::Region
+        HEALTHLAKE_REGION: !Ref AWS::Region
+        HEALTHLAKE_DATASTORE_ENDPOINT: !Ref HealthLakeDatastoreEndpoint
+        WEBSOCKET_URL: !Sub wss://${WebSocketApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod
+        WEBSOCKET_MANAGEMENT_ENDPOINT: !Sub https://${WebSocketApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod
         NODE_OPTIONS: --enable-source-maps
 
 Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-users
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
+      Schema:
+        - Name: hospital_id
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints:
+            MinLength: "1"
+            MaxLength: "128"
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub ems-relay-${AWS::AccountId}-${AWS::Region}
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: ems-relay-spa
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 15
+      IdTokenValidity: 15
+      RefreshTokenValidity: 1
+      TokenValidityUnits:
+        AccessToken: minutes
+        IdToken: minutes
+        RefreshToken: days
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: !Ref CognitoCallbackUrls
+      LogoutURLs: !Ref CognitoLogoutUrls
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      ReadAttributes: [email, email_verified, custom:hospital_id]
+      WriteAttributes: [email]
+
+  ParamedicGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: paramedic, Description: Assigned field paramedics, UserPoolId: !Ref UserPool, Precedence: 10 }
+  ControlGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: control, Description: Transport coordination staff, UserPoolId: !Ref UserPool, Precedence: 20 }
+  HospitalGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: hospital, Description: Hospital receiving staff, UserPoolId: !Ref UserPool, Precedence: 30 }
+  AdminGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: admin, Description: EMS Relay administrators, UserPoolId: !Ref UserPool, Precedence: 1 }
+
   HttpApi:
     Type: AWS::Serverless::HttpApi
     Properties:
       StageName: $default
       CorsConfiguration:
         AllowOrigins: !Ref CorsOrigins
-        AllowHeaders:
-          - content-type
-          - authorization
-          - x-request-id
-        AllowMethods:
-          - GET
-          - POST
-          - OPTIONS
+        AllowHeaders: [content-type, authorization, x-request-id]
+        AllowMethods: [GET, POST, OPTIONS]
         MaxAge: 600
       DefaultRouteSettings:
-        ThrottlingBurstLimit: 5
-        ThrottlingRateLimit: 2
+        ThrottlingBurstLimit: 20
+        ThrottlingRateLimit: 10
+      Auth:
+        DefaultAuthorizer: CognitoJwtAuthorizer
+        Authorizers:
+          CognitoJwtAuthorizer:
+            IdentitySource: $request.header.Authorization
+            JwtConfiguration:
+              issuer: !Sub https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${UserPool}
+              audience: [!Ref UserPoolClient]
 
   ApiFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
       Handler: src/handler.handler
-      Description: EMS Relay API and HITL confirmation handler
+      Description: EMS Relay authenticated HTTP command and query API
       Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref CaseTable
+        - DynamoDBCrudPolicy: { TableName: !Ref CaseTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionTable }
+        - S3WritePolicy: { BucketName: !Ref ReportBucket }
         - Statement:
-            - Sid: InvokeConfiguredBedrockModel
+            - !If
+              - DirectBedrockFallbackEnabled
+              - Sid: InvokeConfiguredBedrockModelOnlyAsExplicitFallback
+                Effect: Allow
+                Action: [bedrock:InvokeModel]
+                Resource: "*"
+              - !Ref AWS::NoValue
+            - !If
+              - AgentCoreConfigured
+              - Sid: InvokeConfiguredAgentCoreRuntime
+                Effect: Allow
+                Action: [bedrock-agentcore:InvokeAgentRuntime]
+                Resource: [!Ref AgentRuntimeArn, !Ref AgentRuntimeEndpointArn]
+              - !Ref AWS::NoValue
+            - Sid: StartDirectTranscribeStream
               Effect: Allow
-              Action:
-                - bedrock:InvokeModel
+              Action: [transcribe:StartStreamTranscriptionWebSocket]
               Resource: "*"
             - Sid: ReadExternalApiSecret
               Effect: Allow
-              Action:
-                - secretsmanager:GetSecretValue
+              Action: [secretsmanager:GetSecretValue]
               Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ExternalApiSecretName}-*
+            - !If
+              - HealthLakeConfigured
+              - Sid: PublishFinalizedFhirResources
+                Effect: Allow
+                Action: [healthlake:ProcessBundle, healthlake:CreateResource, healthlake:ReadResource, healthlake:UpdateResource]
+                Resource: !Ref HealthLakeDatastoreArn
+              - !Ref AWS::NoValue
       Events:
         Health:
           Type: HttpApi
@@ -85,41 +220,175 @@ Resources:
             ApiId: !Ref HttpApi
             Path: /health
             Method: GET
+            Auth: { Authorizer: NONE }
         Agent:
           Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /agent
-            Method: POST
+          Properties: { ApiId: !Ref HttpApi, Path: /agent, Method: POST }
         VoiceProposal:
           Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /cases/{id}/voice-updates/proposals
-            Method: POST
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/voice-updates/proposals", Method: POST }
         Hospitals:
           Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /hospitals
-            Method: GET
+          Properties: { ApiId: !Ref HttpApi, Path: /hospitals, Method: GET }
         GetCase:
           Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /cases/{id}
-            Method: GET
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}", Method: GET }
         ConfirmCase:
           Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Path: /cases/{id}/confirm
-            Method: POST
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/confirm", Method: POST }
+        DirectFacts:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/direct-facts", Method: POST }
+        CaseCommand:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/commands", Method: POST }
+        RealtimeSession:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/realtime-session", Method: POST }
+        TranscribeSession:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: /transcribe/session, Method: POST }
+        GetReport:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/report", Method: GET }
+        DraftReport:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/report/draft", Method: POST }
+        ReviewReport:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/report/review", Method: POST }
+        FinalizeReport:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/report/finalize", Method: POST }
+        PublishFhir:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}/fhir/publish", Method: POST }
     Metadata:
       BuildMethod: esbuild
       BuildProperties:
-        EntryPoints:
-          - src/handler.ts
+        EntryPoints: [src/handler.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+        Format: cjs
+
+  WebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}-realtime
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: $request.body.action
+
+  WebSocketFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/websocket.handler
+      Description: Consumes one-time realtime tickets and manages WebSocket connections
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionTable }
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/websocket.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+        Format: cjs
+
+  WebSocketIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref WebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${WebSocketFunction.Arn}/invocations
+
+  WebSocketConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Sub integrations/${WebSocketIntegration}
+  WebSocketDisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      Target: !Sub integrations/${WebSocketIntegration}
+  WebSocketDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref WebSocketApi
+      RouteKey: $default
+      AuthorizationType: NONE
+      Target: !Sub integrations/${WebSocketIntegration}
+
+  WebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref WebSocketApi
+      StageName: prod
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 50
+        ThrottlingRateLimit: 25
+    DependsOn: [WebSocketConnectRoute, WebSocketDisconnectRoute, WebSocketDefaultRoute]
+
+  WebSocketInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref WebSocketFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/*
+
+  FanoutFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/fanout.handler
+      Description: Sends PHI-free case invalidation messages after committed events
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ConnectionTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref CaseTable }
+        - Statement:
+            - Sid: ManageRealtimeConnections
+              Effect: Allow
+              Action: [execute-api:ManageConnections]
+              Resource: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${WebSocketApi}/prod/POST/@connections/*
+            - !If
+              - HealthLakeConfigured
+              - Sid: PublishQueuedFhirResources
+                Effect: Allow
+                Action: [healthlake:ProcessBundle, healthlake:CreateResource, healthlake:ReadResource, healthlake:UpdateResource]
+                Resource: !Ref HealthLakeDatastoreArn
+              - !Ref AWS::NoValue
+            - Sid: SendFailedStreamRecords
+              Effect: Allow
+              Action: [sqs:SendMessage]
+              Resource: !GetAtt StreamFailureQueue.Arn
+      Events:
+        CaseEvents:
+          Type: DynamoDB
+          Properties:
+            Stream: !GetAtt CaseTable.StreamArn
+            StartingPosition: LATEST
+            BatchSize: 10
+            MaximumRetryAttempts: 3
+            BisectBatchOnFunctionError: true
+            DestinationConfig:
+              OnFailure:
+                Destination: !GetAtt StreamFailureQueue.Arn
+            FilterCriteria:
+              Filters:
+                - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"entityType":{"S":["CASE_EVENT"]}}}}'
+                - Pattern: '{"eventName":["INSERT"],"dynamodb":{"NewImage":{"entityType":{"S":["FHIR_OUTBOX"]}}}}'
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/fanout.ts]
         Minify: true
         Sourcemap: true
         Target: es2022
@@ -132,35 +401,100 @@ Resources:
     Properties:
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: PK
-          AttributeType: S
-        - AttributeName: SK
-          AttributeType: S
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
       KeySchema:
-        - AttributeName: PK
-          KeyType: HASH
-        - AttributeName: SK
-          KeyType: RANGE
-      PointInTimeRecoverySpecification:
-        PointInTimeRecoveryEnabled: true
-      SSESpecification:
-        SSEEnabled: true
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      SSESpecification: { SSEEnabled: true }
+      StreamSpecification: { StreamViewType: NEW_IMAGE }
+      TimeToLiveSpecification: { AttributeName: expiresAt, Enabled: true }
+
+  StreamFailureQueue:
+    Type: AWS::SQS::Queue
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+
+  ConnectionTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: caseId, AttributeType: S }
+        - { AttributeName: connectionId, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+      GlobalSecondaryIndexes:
+        - IndexName: CaseIndex
+          KeySchema:
+            - { AttributeName: caseId, KeyType: HASH }
+            - { AttributeName: connectionId, KeyType: RANGE }
+          Projection: { ProjectionType: KEYS_ONLY }
+      SSESpecification: { SSEEnabled: true }
+      TimeToLiveSpecification: { AttributeName: expiresAt, Enabled: true }
+
+  ReportBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: { SSEAlgorithm: AES256 }
+      VersioningConfiguration: { Status: Enabled }
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireMvpReports
+            Status: Enabled
+            ExpirationInDays: 30
+            NoncurrentVersionExpiration: { NoncurrentDays: 7 }
 
   ApiFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${ApiFunction}
-      RetentionInDays: 7
+    Properties: { LogGroupName: !Sub "/aws/lambda/${ApiFunction}", RetentionInDays: 14 }
+  WebSocketFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties: { LogGroupName: !Sub "/aws/lambda/${WebSocketFunction}", RetentionInDays: 14 }
+  FanoutFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties: { LogGroupName: !Sub "/aws/lambda/${FanoutFunction}", RetentionInDays: 14 }
 
 Outputs:
   ApiUrl:
-    Description: HTTP API base URL
     Value: !Sub https://${HttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  WebSocketUrl:
+    Value: !Sub wss://${WebSocketApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoIssuer:
+    Value: !Sub https://cognito-idp.${AWS::Region}.${AWS::URLSuffix}/${UserPool}
+  CognitoManagedLoginDomain:
+    Value: !Sub https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
   CaseTableName:
-    Description: DynamoDB table containing confirmed state, proposals and audit events
     Value: !Ref CaseTable
+  ConnectionTableName:
+    Value: !Ref ConnectionTable
+  ReportBucketName:
+    Value: !Ref ReportBucket
   FunctionName:
-    Description: Lambda function name
     Value: !Ref ApiFunction

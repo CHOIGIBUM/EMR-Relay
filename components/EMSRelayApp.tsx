@@ -15,7 +15,7 @@ import {
   Route,
   ShieldCheck,
 } from "lucide-react";
-import { DemoProvider, FLOW_STAGES, SCENARIO, STAGE_LABEL, useDemo, type Actor, type DemoEvent, type DemoStage } from "./DemoContext";
+import { DemoProvider, FLOW_STAGES, STAGE_LABEL, useDemo, type Actor, type DemoEvent, type DemoStage } from "./DemoContext";
 import MobileApp from "./MobileApp";
 import ControlConsole from "./ControlConsole";
 import HospitalConsole from "./HospitalConsole";
@@ -119,7 +119,7 @@ function noticeCount(view: View, stage: DemoStage) {
 }
 
 function WorkflowBoard({ onOpenRole }: { onOpenRole: (view: View) => void }) {
-  const { state, progress, reset, selectedHospital } = useDemo();
+  const { state, progress, reset, selectedHospital, scenario: SCENARIO } = useDemo();
 
   return (
     <section className={styles.workflowBoard}>
@@ -216,7 +216,7 @@ function WorkflowBoard({ onOpenRole }: { onOpenRole: (view: View) => void }) {
 }
 
 function AppShell() {
-  const { state, reset } = useDemo();
+  const { state, reset, scenario: SCENARIO } = useDemo();
   const [view, setView] = useState<View>("mobile");
 
   useEffect(() => {

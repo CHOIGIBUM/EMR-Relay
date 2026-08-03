@@ -322,7 +322,7 @@ function parseHospitalDirectory(payload: unknown): HospitalDirectoryResponse {
   if (!isRecord(payload) || !Array.isArray(payload.hospitals) || typeof payload.reference_at !== "string") {
     throw new EmsApiError("병원정보 응답 계약이 올바르지 않습니다.", { code: "INVALID_CONTRACT" });
   }
-  if (payload.source !== "public_reference_api" && payload.source !== "local_fixture") {
+  if (!["live_reference_apis", "unavailable", "public_reference_api", "local_fixture"].includes(String(payload.source))) {
     throw new EmsApiError("병원정보 출처가 누락되었습니다.", { code: "INVALID_CONTRACT" });
   }
   const hospitals = payload.hospitals.map((item) => {
@@ -344,12 +344,14 @@ function parseHospitalDirectory(payload: unknown): HospitalDirectoryResponse {
       distance_km: item.distance_km as number,
       eta_minutes: item.eta_minutes as number,
       reference_capabilities: item.reference_capabilities,
+      ...(typeof item.latitude === "number" && Number.isFinite(item.latitude) ? { latitude: item.latitude } : {}),
+      ...(typeof item.longitude === "number" && Number.isFinite(item.longitude) ? { longitude: item.longitude } : {}),
     };
   });
   return {
     hospitals,
     reference_at: payload.reference_at,
-    source: payload.source,
+    source: payload.source as HospitalDirectoryResponse["source"],
   };
 }
 

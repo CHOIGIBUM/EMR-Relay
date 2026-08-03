@@ -11,6 +11,7 @@ const eslintConfig = defineConfig([
     ".next/**",
     "out/**",
     "build/**",
+    "agentcore/.venv/**",
     "next-env.d.ts",
   ]),
 ]);

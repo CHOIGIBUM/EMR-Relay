@@ -1,0 +1,9 @@
+[
+  {
+    "name": "default",
+    "description": "EMS Relay MVP in US West (Oregon)",
+    "account": "123456789012",
+    "region": "us-west-2"
+  }
+]
+

@@ -1,5 +1,5 @@
-import EMSRelayApp from "@/components/EMSRelayApp";
+import LoginScreen from "@/components/auth/LoginScreen";
 
 export default function Home() {
-  return <EMSRelayApp />;
+  return <LoginScreen />;
 }

@@ -4,6 +4,7 @@ import {
   type AgentRequest,
   type ConfirmDecision,
   type ConfirmRequest,
+  type DirectFactsRequest,
   type FactPath,
   type ProposalValue,
   type ValidationResult,
@@ -179,6 +180,92 @@ export function validateConfirmRequest(value: unknown): ValidationResult<Confirm
       decisions,
     },
   };
+}
+
+function directValueIssue(path: FactPath, value: ProposalValue) {
+  const numberRanges: Partial<Record<FactPath, [number, number]>> = {
+    "patient.age": [0, 130],
+    "vitals.systolicBp": [20, 300],
+    "vitals.diastolicBp": [10, 200],
+    "vitals.pulse": [0, 300],
+    "vitals.respiratoryRate": [0, 100],
+    "vitals.spo2": [0, 100],
+    "vitals.temperature": [20, 45],
+    "vitals.glucose": [10, 1_000],
+    "reassessment.systolicBp": [20, 300],
+    "reassessment.diastolicBp": [10, 200],
+    "reassessment.pulse": [0, 300],
+    "reassessment.respiratoryRate": [0, 100],
+    "reassessment.spo2": [0, 100],
+    "reassessment.temperature": [20, 45],
+    "reassessment.glucose": [10, 1_000],
+  };
+  const range = numberRanges[path];
+  if (range && (typeof value !== "number" || value < range[0] || value > range[1])) {
+    return `${path} 값은 ${range[0]}~${range[1]} 범위의 숫자여야 합니다.`;
+  }
+  if (["consciousness.avpu", "reassessment.avpu"].includes(path) && !["A", "V", "P", "U"].includes(String(value))) {
+    return `${path} 값은 A, V, P, U 중 하나여야 합니다.`;
+  }
+  if (path === "patient.sex" && !["남", "여", "남성", "여성", "미상"].includes(String(value))) {
+    return "patient.sex 값은 남, 여, 남성, 여성, 미상 중 하나여야 합니다.";
+  }
+  return null;
+}
+
+export function validateDirectFactsRequest(value: unknown): ValidationResult<DirectFactsRequest> {
+  if (!isRecord(value)) return { ok: false, issues: ["요청 본문은 JSON 객체여야 합니다."] };
+  const issues: string[] = [];
+  if (value.kind !== "initial" && value.kind !== "reassessment") issues.push("kind는 initial 또는 reassessment여야 합니다.");
+  if (!Number.isInteger(value.expectedVersion) || Number(value.expectedVersion) < 0) {
+    issues.push("expectedVersion은 0 이상의 정수여야 합니다.");
+  }
+  const facts: DirectFactsRequest["facts"] = [];
+  const seen = new Set<string>();
+  if (!Array.isArray(value.facts) || value.facts.length === 0 || value.facts.length > 20) {
+    issues.push("facts는 1~20개 항목의 배열이어야 합니다.");
+  } else {
+    value.facts.forEach((entry, index) => {
+      if (!isRecord(entry)) {
+        issues.push(`facts[${index}]는 객체여야 합니다.`);
+        return;
+      }
+      if (typeof entry.path !== "string" || !FACT_PATHS.has(entry.path)) {
+        issues.push(`facts[${index}].path가 허용 목록에 없습니다.`);
+        return;
+      }
+      const path = entry.path as FactPath;
+      const isReassessmentPath = path.startsWith("reassessment.") || path === "transport.reassessment";
+      if (value.kind === "initial" && isReassessmentPath) {
+        issues.push(`facts[${index}].path는 최초 평가 입력에 사용할 수 없습니다.`);
+      }
+      if (value.kind === "reassessment" && !isReassessmentPath) {
+        issues.push(`facts[${index}].path는 이송 중 재평가 입력에 사용할 수 없습니다.`);
+      }
+      if (seen.has(path)) issues.push(`facts[${index}].path가 중복되었습니다.`);
+      seen.add(path);
+      if (!isProposalValue(entry.value)) {
+        issues.push(`facts[${index}].value 형식이 올바르지 않습니다.`);
+        return;
+      }
+      const rangeIssue = directValueIssue(path, entry.value);
+      if (rangeIssue) issues.push(rangeIssue);
+      if (!validOptionalIsoDate(entry.observedAt)) issues.push(`facts[${index}].observedAt은 ISO 8601 형식이어야 합니다.`);
+      if (typeof entry.sourceText !== "string" || entry.sourceText.trim().length === 0 || entry.sourceText.length > 300) {
+        issues.push(`facts[${index}].sourceText 형식이 올바르지 않습니다.`);
+      }
+      if (!rangeIssue && typeof entry.sourceText === "string" && entry.sourceText.trim()) {
+        facts.push({
+          path,
+          value: entry.value,
+          sourceText: entry.sourceText.trim(),
+          ...(typeof entry.observedAt === "string" ? { observedAt: entry.observedAt } : {}),
+        });
+      }
+    });
+  }
+  if (issues.length) return { ok: false, issues };
+  return { ok: true, value: { expectedVersion: value.expectedVersion as number, kind: value.kind as DirectFactsRequest["kind"], facts } };
 }
 
 export function validateAgentModelOutput(value: unknown): ValidationResult<AgentModelOutput> {

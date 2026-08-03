@@ -17,7 +17,7 @@ function collectSourceFiles(directory) {
   });
 }
 
-const sourceFiles = ["app", "components", "lib"]
+const sourceFiles = ["app", "components", "hooks", "lib"]
   .flatMap((directory) => collectSourceFiles(path.join(projectRoot, directory)));
 const sources = new Map(
   sourceFiles.map((file) => [path.relative(projectRoot, file), readFileSync(file, "utf8")]),
@@ -72,6 +72,24 @@ test("exposes the three operational roles and a report review surface", () => {
     /report[-_ ]?(?:draft|review)/i,
     /(?:구급활동일지|응급구조[^\n]{0,12}보고서|보고서)\s*(?:작성|초안|검토)/,
   ]);
+});
+
+test("wires authenticated role routes, microphone PTT, and authoritative realtime refresh", () => {
+  for (const route of ["app/paramedic/page.tsx", "app/control/page.tsx", "app/hospital/page.tsx", "app/reports/page.tsx"]) {
+    assert.ok([...sources.keys()].some((file) => file.replaceAll("\\", "/") === route), `${route} 역할 경로가 없습니다.`);
+  }
+  const source = (wanted) => [...sources].find(([file]) => file.replaceAll("\\", "/") === wanted)?.[1] ?? "";
+  const ptt = source("hooks/useTranscribePtt.ts");
+  assert.match(ptt, /getUserMedia/);
+  assert.match(ptt, /createTranscribeSession/);
+  assert.match(ptt, /encodeAudioEvent/);
+  const provider = source("components/DemoContext.tsx");
+  assert.match(provider, /case\.invalidated/);
+  assert.match(provider, /getCaseSnapshot/);
+  assert.match(provider, /expectedVersion/);
+  const auth = source("lib/cognitoAuth.ts");
+  assert.match(auth, /code_challenge_method/);
+  assert.match(auth, /cognito:groups/);
 });
 
 test("covers the end-to-end case lifecycle without coupling to display copy", () => {
@@ -142,7 +160,7 @@ test("represents uncertain clinical facts without a concrete demo fallback", () 
 
 test("rendered shell exposes role navigation", { skip: !existsSync(builtWorkerPath) }, async () => {
   const response = await fetchApplication(
-    new Request("http://localhost/?view=workflow", { headers: { accept: "text/html" } }),
+    new Request("http://localhost/demo/workflow?view=workflow", { headers: { accept: "text/html" } }),
   );
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -202,4 +220,37 @@ test("hospital directory is reference data, not an acceptance decision", { skip:
     const keys = Object.keys(hospital);
     assert.ok(!keys.some((key) => /^(?:accepted|acceptance|realtimeAcceptance|autoRecommended)$/i.test(key)));
   }
+});
+
+test("operational workspaces start empty and never merge the cardiovascular demo fixture", () => {
+  const source = (wanted) => [...sources].find(([file]) => file.replaceAll("\\", "/") === wanted)?.[1] ?? "";
+  const provider = source("components/DemoContext.tsx");
+  const mobile = source("components/MobileApp.tsx");
+  const workspace = source("components/OperationalWorkspace.tsx");
+  const report = source("components/ReportConsole.tsx");
+
+  assert.match(provider, /value:\s*operational\s*\?\s*operationalInitialState\(\)\s*:\s*initialState\(\)/);
+  assert.match(provider, /operational\s*\?\s*createOperationalScenario\(caseId\)\s*:\s*SCENARIO/);
+  assert.match(provider, /operational\s*\?\s*\[\]\s*:\s*HOSPITALS/);
+  assert.match(provider, /mode:\s*remoteEnabled\s*\?\s*"remote"\s*:\s*operational\s*\?\s*"operational"\s*:\s*"demo"/);
+  assert.match(provider, /if\s*\(operational\)\s*\{\s*hydratedRef\.current\s*=\s*true;\s*return;/);
+  assert.match(provider, /if\s*\(operational\s*\|\|\s*remoteEnabled\s*\|\|\s*!hydratedRef\.current/);
+
+  const scenarioStart = provider.indexOf("function snapshotToScenario");
+  const stateStart = provider.indexOf("function snapshotToState", scenarioStart);
+  const commandStart = provider.indexOf("function commandForAction", stateStart);
+  const operationalSnapshotCode = provider.slice(scenarioStart, commandStart);
+  assert.ok(scenarioStart >= 0 && stateStart > scenarioStart && commandStart > stateStart);
+  assert.doesNotMatch(operationalSnapshotCode, /CARDIO_DEMO_|\bSCENARIO\b|\bHOSPITALS\b/);
+  assert.match(operationalSnapshotCode, /const empty = createOperationalScenario\(snapshot\.caseId\)/);
+  assert.match(operationalSnapshotCode, /const empty = operationalInitialState\(\)/);
+  assert.match(operationalSnapshotCode, /:\s*\[\];/);
+
+  assert.match(mobile, /operational\s*\?\s*createOperationalPttUpdates/);
+  assert.match(mobile, /operational\s*\?\s*\{\s*bp:\s*""/);
+  assert.match(mobile, /SCENARIO\.interventions\.join\(" · "\)\s*\|\|\s*\(operational\s*\?\s*"기록 없음"/);
+  assert.doesNotMatch(mobile, /`AVPU A · BP \$\{state\.reassessmentVitals/);
+  assert.doesNotMatch(workspace, /import\s*\{[^}]*\bSCENARIO\b[^}]*\}\s*from\s*"\.\/DemoContext"/);
+  assert.match(workspace, /NEXT_PUBLIC_EMS_DEFAULT_CASE_ID\?\.trim\(\)\s*\|\|\s*"UNASSIGNED"/);
+  assert.match(report, /if\s*\(sync\.mode\s*===\s*"demo"\)\s*return\s*DEMO_UNKNOWN_ITEMS/);
 });

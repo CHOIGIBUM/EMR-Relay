@@ -1,0 +1,48 @@
+.shell,
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.shell {
+  overflow: hidden;
+  background: #e7f0ef;
+}
+
+.map {
+  min-height: 235px;
+}
+
+.fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 5px;
+  padding: 36px;
+  color: #46616b;
+  text-align: center;
+  background: linear-gradient(135deg, #e8f2f1, #dfeaec);
+}
+
+.fallback strong { font-size: 12px; }
+.fallback small { max-width: 220px; font-size: 9px; line-height: 1.5; }
+
+.openDirections {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  text-decoration: none;
+  border-radius: 9px;
+  background: #13354a;
+  box-shadow: 0 6px 15px rgba(20, 55, 70, 0.2);
+}

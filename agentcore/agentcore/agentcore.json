@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/aws/agentcore-cli/main/schemas/agentcore.schema.v1.json",
+  "name": "EMSRelayMVP",
+  "version": 1,
+  "tags": {
+    "Project": "EMSRelay",
+    "Component": "ProposalAgent"
+  },
+  "runtimes": [
+    {
+      "name": "EMSRelayProposal",
+      "description": "Proposal-only EMS field update workflow",
+      "build": "CodeZip",
+      "entrypoint": "main.py",
+      "codeLocation": ".",
+      "runtimeVersion": "PYTHON_3_12",
+      "protocol": "HTTP",
+      "networkMode": "PUBLIC",
+      "instrumentation": {
+        "enableOtel": false
+      },
+      "authorizerType": "AWS_IAM",
+      "envVars": [
+        {
+          "name": "AWS_REGION",
+          "value": "us-west-2"
+        },
+        {
+          "name": "BEDROCK_REGION",
+          "value": "us-west-2"
+        },
+        {
+          "name": "BEDROCK_MODEL_ID",
+          "value": "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+        },
+        {
+          "name": "BEDROCK_TEMPERATURE",
+          "value": "0.3"
+        },
+        {
+          "name": "BEDROCK_MAX_TOKENS",
+          "value": "1800"
+        },
+        {
+          "name": "DISABLE_ADOT_OBSERVABILITY",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

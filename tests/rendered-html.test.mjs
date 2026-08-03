@@ -13,13 +13,13 @@ async function fetchApplication(request) {
   );
 }
 
-async function render() {
+async function render(pathname = "/") {
   return fetchApplication(
-    new Request("http://localhost/", { headers: { accept: "text/html" } }),
+    new Request(`http://localhost${pathname}`, { headers: { accept: "text/html" } }),
   );
 }
 
-test("renders the EMS Relay application shell", async () => {
+test("renders the role login shell", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
@@ -27,16 +27,29 @@ test("renders the EMS Relay application shell", async () => {
   const html = await response.text();
   assert.match(html, /<title>EMS Relay \| 심혈관 응급환자 실시간 인계<\/title>/i);
   assert.match(html, /EMS Relay/);
-  assert.match(html, /구급대/);
-  assert.match(html, /병원/);
-  assert.match(html, /상황실/);
-  assert.match(html, /EMS-GW-050/);
-  assert.match(html, /65~74세 추정 여성/);
-  assert.match(html, /속초시/);
-  assert.match(html, /출동 사건 1건/);
+  assert.match(html, /업무 계정으로 로그인/);
+  assert.match(html, /소속과 역할/);
   assert.match(html, /og:image/);
-  assert.doesNotMatch(html, /EMS-GW-001|EMS-GW-002|EMS-GW-003|60대 추정 남성/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
+});
+
+test("keeps the complete local workflow at an explicit demo route", async () => {
+  const response = await render("/demo/workflow?view=mobile");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /EMS Relay/);
+  assert.match(html, /구급대/);
+  assert.match(html, /EMS-GW-050/);
+  assert.match(html, /출동 사건 1건/);
+});
+
+test("operational route shells do not server-render synthetic patient facts", async () => {
+  for (const pathname of ["/paramedic", "/control", "/hospital", "/reports"]) {
+    const response = await render(pathname);
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.doesNotMatch(html, /73세 여성|속초시 합성 현장|와파린|해솔응급의료센터|푸른강권역응급센터|새봄종합병원/);
+  }
 });
 
 test("serves the local MVP health and hospital fixtures", async () => {

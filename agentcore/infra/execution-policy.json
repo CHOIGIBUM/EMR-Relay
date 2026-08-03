@@ -1,0 +1,76 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadDeploymentArtifact",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion"
+      ],
+      "Resource": "arn:aws:s3:::bedrock-agentcore-code-462993243992-us-west-2/EMSRelayProposal/*"
+    },
+    {
+      "Sid": "ListDeploymentBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::bedrock-agentcore-code-462993243992-us-west-2",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "EMSRelayProposal/*"
+        }
+      }
+    },
+    {
+      "Sid": "InvokeConfiguredClaudeModel",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel",
+        "bedrock:InvokeModelWithResponseStream"
+      ],
+      "Resource": [
+        "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-*",
+        "arn:aws:bedrock:*:462993243992:inference-profile/global.anthropic.claude-haiku-4-5-*"
+      ]
+    },
+    {
+      "Sid": "RuntimeLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:DescribeLogStreams",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:us-west-2:462993243992:log-group:/aws/bedrock-agentcore/runtimes/*"
+    },
+    {
+      "Sid": "DescribeRuntimeLogGroups",
+      "Effect": "Allow",
+      "Action": "logs:DescribeLogGroups",
+      "Resource": "arn:aws:logs:us-west-2:462993243992:log-group:*"
+    },
+    {
+      "Sid": "RuntimeTelemetry",
+      "Effect": "Allow",
+      "Action": [
+        "xray:PutTraceSegments",
+        "xray:PutTelemetryRecords",
+        "xray:GetSamplingRules",
+        "xray:GetSamplingTargets"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RuntimeMetrics",
+      "Effect": "Allow",
+      "Action": "cloudwatch:PutMetricData",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "cloudwatch:namespace": "bedrock-agentcore"
+        }
+      }
+    }
+  ]
+}

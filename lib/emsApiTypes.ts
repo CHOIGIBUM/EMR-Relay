@@ -75,12 +75,14 @@ export type HospitalDirectoryItem = {
   distance_km: number;
   eta_minutes: number;
   reference_capabilities: string[];
+  latitude?: number;
+  longitude?: number;
 };
 
 export type HospitalDirectoryResponse = {
   hospitals: HospitalDirectoryItem[];
   reference_at: string;
-  source: "public_reference_api" | "local_fixture";
+  source: "live_reference_apis" | "unavailable" | "public_reference_api" | "local_fixture";
 };
 
 export type HospitalDirectoryRequest = {

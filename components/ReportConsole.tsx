@@ -27,13 +27,22 @@ import {
   Stethoscope,
   UserRound,
 } from "lucide-react";
-import { CARDIO_DEMO_REPORT_DRAFT, SCENARIO, useDemo, type DemoEvent, type DemoState } from "./DemoContext";
+import { CARDIO_DEMO_REPORT_DRAFT, useDemo, type DemoEvent, type DemoState, type ScenarioView } from "./DemoContext";
+import type { OperationalAnnex5Draft } from "@/lib/operationalTypes";
 import styles from "./ReportConsole.module.css";
 
 type ReportTab = "activity" | "cardio";
 type ReviewFilter = "all" | "review" | "unknown";
 type ReportStatus = "draft" | "reviewing" | "confirmed";
-type ReviewKey = "impression" | "medication" | "hospital" | "receiver";
+type ReviewKey =
+  | "patientIdentity"
+  | "symptomsAndOccurrence"
+  | "patientAssessment"
+  | "paramedicAssessment"
+  | "emergencyCare"
+  | "medicalDirection"
+  | "transport"
+  | "handoff";
 
 type ReportViewModel = {
   caseId: string;
@@ -51,36 +60,75 @@ type ReportViewModel = {
 const REVIEW_ITEMS: Array<{
   key: ReviewKey;
   title: string;
-  value: string;
   helper: string;
 }> = [
   {
-    key: "impression",
-    title: "현장 평가 소견",
-    value: "급성 관상동맥증후군 의심",
-    helper: "확정 진단이 아닌 구급대원 현장 평가 소견입니다.",
+    key: "patientIdentity",
+    title: "환자 인적사항",
+    helper: "연령과 성별을 환자·보호자 또는 신분 확인 결과와 대조합니다.",
   },
   {
-    key: "medication",
-    title: "복용약 확인",
-    value: "와파린 복용 진술 · 약제 확인 필요",
-    helper: "진술 기반 정보이며 실제 약제 확인 결과를 기록해야 합니다.",
+    key: "symptomsAndOccurrence",
+    title: "증상·발생시각",
+    helper: "주호소와 마지막 정상 확인 시각의 근거를 확인합니다.",
   },
   {
-    key: "hospital",
-    title: "병원 수용문의 기록",
-    value: "1차 문의 추가정보 요청 · 2차 문의 수용 가능",
-    helper: "문의 순서와 수용곤란·추가정보 사유를 확인하세요.",
+    key: "patientAssessment",
+    title: "환자 평가",
+    helper: "AVPU와 최초·재평가 활력징후의 측정값·시각을 확인합니다.",
   },
   {
-    key: "receiver",
-    title: "환자 인수자",
-    value: "응급실 인수자 이름과 직종",
-    helper: "인계받은 의료진이 맞는지 확인하세요.",
+    key: "paramedicAssessment",
+    title: "구급대원 평가",
+    helper: "현장 소견은 확정 진단이 아니며 관찰 근거를 확인합니다.",
+  },
+  {
+    key: "emergencyCare",
+    title: "응급처치",
+    helper: "실제로 시행한 처치와 약물만 기록되었는지 확인합니다.",
+  },
+  {
+    key: "medicalDirection",
+    title: "의료지도",
+    helper: "의료지도 시행 여부와 지도 내용을 확인합니다.",
+  },
+  {
+    key: "transport",
+    title: "이송 의료기관",
+    helper: "최종 수용 회신과 실제 이송지를 대조합니다.",
+  },
+  {
+    key: "handoff",
+    title: "환자 인계",
+    helper: "인수자·직종·인계 완료 시각을 확인합니다.",
   },
 ];
 
-const UNKNOWN_ITEMS = [
+function reportSectionValue(key: ReviewKey, draft: OperationalAnnex5Draft | undefined, report: ReportViewModel) {
+  if (!draft) {
+    if (key === "patientIdentity") return report.patient;
+    if (key === "symptomsAndOccurrence") return report.chiefComplaint;
+    if (key === "transport") return report.hospitalName;
+    if (key === "handoff") return `${report.receiverRole} ${report.receiver}`;
+    return "사건 기록에서 확인";
+  }
+  const simple = (record: Record<string, unknown>) => Object.values(record)
+    .flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter((value) => typeof value === "string" || typeof value === "number" || typeof value === "boolean")
+    .map(String)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join(" · ") || "기록 없음";
+  if (key === "patientAssessment") {
+    const first = draft.patientAssessment.vitalSigns[0] ?? {};
+    const avpu = draft.patientAssessment.consciousness.avpu;
+    const bp = first.systolicBp && first.diastolicBp ? `BP ${first.systolicBp}/${first.diastolicBp} mmHg` : "혈압 미입력";
+    return [`AVPU ${String(avpu ?? "미상")}`, bp, first.pulse ? `PR ${first.pulse}회/분` : ""].filter(Boolean).join(" · ");
+  }
+  return simple(draft[key] as Record<string, unknown>);
+}
+
+const DEMO_UNKNOWN_ITEMS = [
   { label: "약물 알레르기", value: "미상", source: "환자·보호자 확인 불가" },
   { label: "12유도 심전도 상세 소견", value: "미상", source: "시행은 확인됨 · 상세 소견 미확인" },
   { label: "의료지도", value: "기록 없음 · 확인 필요", source: "기록 부재를 미시행으로 판단하지 않음" },
@@ -94,6 +142,7 @@ function cleanText(value: unknown, fallback = "원문 확인 필요") {
 }
 
 function displayValue(value: unknown, fallback = "—") {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
@@ -108,26 +157,34 @@ function eventPresentation(event: DemoEvent) {
 function toReportViewModel(
   state: DemoState,
   selectedHospital: { name?: string } | null,
+  scenarioSource: Record<string, unknown>,
+  draft?: OperationalAnnex5Draft,
 ): ReportViewModel {
-  const scenario = SCENARIO as Record<string, unknown>;
-  const receiver = displayValue(state.handoffReceiver, "미입력");
-  const receiverRole = cleanText(state.handoffRole, "직종 미입력");
+  const scenario = scenarioSource;
+  const identity = draft?.patientIdentity ?? {};
+  const symptoms = draft?.symptomsAndOccurrence ?? {};
+  const transport = draft?.transport ?? {};
+  const handoff = draft?.handoff ?? {};
+  const firstVitals = draft?.patientAssessment.vitalSigns[0] ?? {};
+  const receiver = displayValue(handoff.receiverName, displayValue(state.handoffReceiver, "미입력"));
+  const receiverRole = cleanText(handoff.receiverRole, cleanText(state.handoffRole, "직종 미입력"));
+  const identityText = [identity.age ? `${String(identity.age)}세` : "", identity.sex ? String(identity.sex) : ""].filter(Boolean).join(" ");
 
   return {
-    caseId: cleanText(scenario.id, "—"),
-    patient: cleanText(scenario.patient, "미입력"),
+    caseId: cleanText(draft?.dispatchTimeline.caseId, cleanText(scenario.id, "—")),
+    patient: identityText || cleanText(scenario.patient, "미입력"),
     location: cleanText(scenario.location, "확인 필요"),
-    chiefComplaint: cleanText(scenario.chiefComplaint, "미입력"),
-    hospitalName: cleanText(selectedHospital?.name, "미확정"),
+    chiefComplaint: cleanText(symptoms.chiefComplaint, cleanText(scenario.chiefComplaint, "미입력")),
+    hospitalName: cleanText(transport.primaryDestinationHospitalName, cleanText(selectedHospital?.name, "미확정")),
     receiver,
     receiverRole,
     vitals: [
-      { label: "혈압", value: displayValue(state.vitals.bp), unit: "mmHg" },
-      { label: "맥박", value: displayValue(state.vitals.pr), unit: "회/분" },
-      { label: "호흡수", value: displayValue(state.vitals.rr), unit: "회/분" },
-      { label: "SpO₂", value: displayValue(state.vitals.spo2), unit: "%" },
-      { label: "체온", value: displayValue(state.vitals.temp), unit: "℃" },
-      { label: "혈당", value: displayValue(state.vitals.glucose), unit: "mg/dL" },
+      { label: "혈압", value: firstVitals.systolicBp && firstVitals.diastolicBp ? `${firstVitals.systolicBp}/${firstVitals.diastolicBp}` : displayValue(state.vitals.bp), unit: "mmHg" },
+      { label: "맥박", value: displayValue(firstVitals.pulse, displayValue(state.vitals.pr)), unit: "회/분" },
+      { label: "호흡수", value: displayValue(firstVitals.respiratoryRate, displayValue(state.vitals.rr)), unit: "회/분" },
+      { label: "SpO₂", value: displayValue(firstVitals.spo2, displayValue(state.vitals.spo2)), unit: "%" },
+      { label: "체온", value: displayValue(firstVitals.temperature, displayValue(state.vitals.temp)), unit: "℃" },
+      { label: "혈당", value: displayValue(firstVitals.glucose, displayValue(state.vitals.glucose)), unit: "mg/dL" },
     ],
     events: Array.isArray(state.events) ? state.events : [],
     latestTime: state.events.at(-1)?.time ?? "—",
@@ -149,7 +206,7 @@ function StatusPill({
 }
 
 export default function ReportConsole() {
-  const { state, selectedHospital, dispatch } = useDemo();
+  const { state, selectedHospital, dispatch, scenario: SCENARIO, sync } = useDemo();
   const [activeTab, setActiveTab] = useState<ReportTab>("activity");
   const [filter, setFilter] = useState<ReviewFilter>("all");
   const [reportStatus, setReportStatus] = useState<ReportStatus>("draft");
@@ -158,19 +215,39 @@ export default function ReportConsole() {
   const [notice, setNotice] = useState<string | null>(null);
 
   const report = useMemo(
-    () => toReportViewModel(state, selectedHospital),
-    [state, selectedHospital],
+    () => toReportViewModel(state, selectedHospital, SCENARIO as unknown as Record<string, unknown>, sync.report?.draft),
+    [state, selectedHospital, SCENARIO, sync.report?.draft],
   );
+  const unknownItems = useMemo(() => {
+    if (sync.mode === "demo") return DEMO_UNKNOWN_ITEMS;
+    return (sync.report?.draft.missingFields ?? []).map((field) => ({
+      label: field,
+      value: "미입력",
+      source: "보고서 초안의 누락 항목",
+    }));
+  }, [sync.mode, sync.report?.draft.missingFields]);
   const isCaseComplete = state.stage === "complete";
   const reviewComplete = reviewed.size === REVIEW_ITEMS.length;
-  const unknownComplete = unknownConfirmed.size === UNKNOWN_ITEMS.length;
-  const autoCount = CARDIO_DEMO_REPORT_DRAFT.completion.autoFilledFields;
+  const unknownComplete = unknownConfirmed.size === unknownItems.length;
+  const autoCount = sync.mode === "demo"
+    ? CARDIO_DEMO_REPORT_DRAFT.completion.autoFilledFields
+    : sync.report ? Math.max(0, REVIEW_ITEMS.length - new Set(sync.report.draft.missingFields.map((field) => field.split(".")[0])).size) : 0;
+  const totalFieldCount = sync.mode === "demo" ? CARDIO_DEMO_REPORT_DRAFT.completion.totalFields : REVIEW_ITEMS.length + unknownItems.length;
   const needsReviewCount = REVIEW_ITEMS.length - reviewed.size;
-  const unknownCount = UNKNOWN_ITEMS.length - unknownConfirmed.size;
+  const unknownCount = Math.max(0, unknownItems.length - unknownConfirmed.size);
 
   useEffect(() => {
     if (state.stage === "complete" && state.reportStatus === "ready") dispatch({ type: "CREATE_REPORT" });
   }, [state.stage, state.reportStatus, dispatch]);
+
+  useEffect(() => {
+    if (!sync.report) return;
+    const timer = window.setTimeout(() => {
+      setReviewed(new Set(sync.report?.reviewedFields.filter((field): field is ReviewKey => REVIEW_ITEMS.some((item) => item.key === field)) ?? []));
+      setReportStatus(sync.report?.status === "FINALIZED" ? "confirmed" : sync.report?.status === "IN_REVIEW" ? "reviewing" : "draft");
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [sync.report]);
 
   const notify = (message: string) => {
     setNotice(message);
@@ -214,7 +291,7 @@ export default function ReportConsole() {
     for (const item of REVIEW_ITEMS) {
       if (!state.reportReviewedIds.includes(item.key)) dispatch({ type: "TOGGLE_REPORT_REVIEW", reviewId: item.key });
     }
-    window.setTimeout(() => dispatch({ type: "MARK_REPORT_REVIEWED" }), 0);
+    window.setTimeout(() => dispatch({ type: "MARK_REPORT_REVIEWED", reviewedFields: REVIEW_ITEMS.map((item) => item.key) }), 0);
     notify("구급대원 검토가 완료되었습니다.");
   };
 
@@ -302,8 +379,8 @@ export default function ReportConsole() {
               <div><dt>확인 필요</dt><dd data-tone="amber">{needsReviewCount}건</dd></div>
               <div><dt>미상</dt><dd data-tone="slate">{unknownCount}건</dd></div>
             </dl>
-            <div className={styles.progressTrack}><i style={{ width: `${Math.round(((reviewed.size + unknownConfirmed.size) / (REVIEW_ITEMS.length + UNKNOWN_ITEMS.length)) * 100)}%` }} /></div>
-            <small>구급대원 확인 {reviewed.size + unknownConfirmed.size}/{REVIEW_ITEMS.length + UNKNOWN_ITEMS.length}</small>
+            <div className={styles.progressTrack}><i style={{ width: `${Math.round(((reviewed.size + unknownConfirmed.size) / Math.max(1, REVIEW_ITEMS.length + unknownItems.length)) * 100)}%` }} /></div>
+            <small>구급대원 확인 {reviewed.size + unknownConfirmed.size}/{REVIEW_ITEMS.length + unknownItems.length}</small>
           </div>
 
           <div className={styles.sourceNote}>
@@ -335,7 +412,7 @@ export default function ReportConsole() {
 
           <div className={styles.filterRow}>
             <div className={styles.filters} role="group" aria-label="보고서 항목 필터">
-              <button type="button" data-active={filter === "all"} onClick={() => setFilter("all")}>전체 항목 <b>{CARDIO_DEMO_REPORT_DRAFT.completion.totalFields}</b></button>
+              <button type="button" data-active={filter === "all"} onClick={() => setFilter("all")}>전체 항목 <b>{totalFieldCount}</b></button>
               <button type="button" data-active={filter === "review"} onClick={() => setFilter("review")}>확인 필요 <b data-tone="amber">{needsReviewCount}</b></button>
               <button type="button" data-active={filter === "unknown"} onClick={() => setFilter("unknown")}>미상 <b data-tone="slate">{unknownCount}</b></button>
             </div>
@@ -345,9 +422,9 @@ export default function ReportConsole() {
           <div className={styles.mainScroll}>
             {filter === "all" ? (
               activeTab === "activity" ? (
-                <ActivityReport report={report} state={state} />
+                <ActivityReport report={report} state={state} scenario={SCENARIO} />
               ) : (
-                <CardioReport report={report} state={state} />
+                <CardioReport report={report} state={state} scenario={SCENARIO} />
               )
             ) : null}
 
@@ -360,9 +437,7 @@ export default function ReportConsole() {
                 <div className={styles.reviewGrid}>
                   {REVIEW_ITEMS.map((item) => {
                     const done = reviewed.has(item.key);
-                    const value = item.key === "receiver"
-                      ? `${report.receiverRole} ${report.receiver}`
-                      : item.value;
+                    const value = reportSectionValue(item.key, sync.report?.draft, report);
                     return (
                       <article className={styles.reviewCard} data-done={done} key={item.key}>
                         <button type="button" className={styles.reviewCheck} onClick={() => toggleReview(item.key)} aria-label={`${item.title} 확인`}>
@@ -384,7 +459,7 @@ export default function ReportConsole() {
                   <span>확인할 수 없었던 정보도 기록 상태로 보존합니다.</span>
                 </div>
                 <div className={styles.unknownTable}>
-                  {UNKNOWN_ITEMS.map((item, index) => {
+                  {unknownItems.map((item, index) => {
                     const done = unknownConfirmed.has(index);
                     return (
                       <div key={item.label} data-done={done}>
@@ -407,7 +482,7 @@ export default function ReportConsole() {
           </div>
 
           <div className={styles.summaryRing} data-complete={reviewComplete && unknownComplete}>
-            <span><strong>{reviewed.size + unknownConfirmed.size}</strong><small>/{REVIEW_ITEMS.length + UNKNOWN_ITEMS.length}</small></span>
+            <span><strong>{reviewed.size + unknownConfirmed.size}</strong><small>/{REVIEW_ITEMS.length + unknownItems.length}</small></span>
             <p>필수 확인 항목</p>
           </div>
 
@@ -415,7 +490,7 @@ export default function ReportConsole() {
             <li data-done="true"><span><Check size={13} /></span><div><strong>확정 기록 불러오기</strong><small>사건·환자·측정·회신 이력</small></div></li>
             <li data-done={reviewed.size > 0}><span>{reviewed.size > 0 ? <Check size={13} /> : "2"}</span><div><strong>의학적 항목 확인</strong><small>{needsReviewCount}건 남음</small></div></li>
             <li data-done={unknownComplete}><span>{unknownComplete ? <Check size={13} /> : "3"}</span><div><strong>미상 항목 확인</strong><small>{unknownCount}건 남음</small></div></li>
-            <li data-done={reportStatus === "confirmed"}><span>{reportStatus === "confirmed" ? <Check size={13} /> : "4"}</span><div><strong>구급대원 최종 확정</strong><small>확정 후 PDF·JSON 생성</small></div></li>
+            <li data-done={reportStatus === "confirmed"}><span>{reportStatus === "confirmed" ? <Check size={13} /> : "4"}</span><div><strong>구급대원 최종 확정</strong><small>확정 후 인쇄본·JSON 보관</small></div></li>
           </ol>
 
           <div className={styles.receiverCard}>
@@ -434,21 +509,54 @@ export default function ReportConsole() {
               type="button"
               className={styles.primaryAction}
               data-ready={isCaseComplete && reviewComplete && unknownComplete}
+              disabled={sync.pending}
               onClick={reportStatus === "confirmed" ? () => { dispatch({ type: "CLOSE_CASE" }); notify("사건 기록을 종료했습니다."); } : confirmReport}
             >
-              {state.reportStatus === "closed" ? <><LockKeyhole size={18} /> 사건 기록 종료</> : reportStatus === "confirmed" ? <><BadgeCheck size={18} /> 사건 기록 종료</> : <><ClipboardCheck size={18} /> 검토 완료</>}
+              {sync.pending ? <><Save size={18} /> 저장 중</> : state.reportStatus === "closed" ? <><LockKeyhole size={18} /> 사건 기록 종료</> : reportStatus === "confirmed" ? <><BadgeCheck size={18} /> 사건 기록 종료</> : <><ClipboardCheck size={18} /> 검토 완료</>}
             </button>
             <small><LockKeyhole size={12} /> 자동 서명·공식 제출은 수행하지 않습니다.</small>
           </div>
         </aside>
       </div>
 
+      <section className={styles.officialPrint} aria-label="구급활동일지 인쇄본">
+        <div className={styles.printTitle}><h1>구급활동일지</h1><span>사건번호 {report.caseId}</span></div>
+        <table><tbody>
+          <tr><th>소방기관</th><td>{displayValue(sync.report?.draft.administrative.organization, SCENARIO.unit)}</td><th>구급차량</th><td>{displayValue(sync.report?.draft.administrative.vehicleNumber, "미입력")}</td><th>담당</th><td>구급대원</td><th>결재</th><td>　　　　　　</td></tr>
+          <tr><th>신고접수</th><td>{report.events.find((event) => event.title.includes("신고"))?.time ?? "—"}</td><th>출동</th><td>{report.events.find((event) => event.title.includes("출동 시작"))?.time ?? "—"}</td><th>현장도착</th><td>{report.events.find((event) => event.title.includes("현장 도착"))?.time ?? "—"}</td><th>병원도착</th><td>{report.events.find((event) => event.title.includes("병원 도착"))?.time ?? "—"}</td></tr>
+        </tbody></table>
+        <h2>환자 인적사항</h2>
+        <table><tbody><tr><th>성명</th><td>미상</td><th>연령·성별</th><td>{report.patient}</td><th>발생장소</th><td colSpan={3}>{report.location}</td></tr></tbody></table>
+        <h2>증상 및 발생유형</h2>
+        <table><tbody><tr><th>주호소</th><td colSpan={3}>{report.chiefComplaint}</td><th>발생시각</th><td>{SCENARIO.onset}</td><th>발생유형</th><td>{displayValue(sync.report?.draft.symptomsAndOccurrence.occurrenceType, "확인 필요")}</td></tr></tbody></table>
+        <h2>환자평가</h2>
+        <table><tbody>
+          <tr><th>AVPU</th><td>{state.avpu}</td><th>동공</th><td>미상</td><th>중증도 LEVEL</th><td>구급대원 확인 필요</td><th>평가시각</th><td>{report.latestTime}</td></tr>
+          <tr><th>최초 활력</th><td colSpan={3}>BP {report.vitals[0].value} mmHg · PR {report.vitals[1].value}회/분 · RR {report.vitals[2].value}회/분 · SpO₂ {report.vitals[3].value}%</td><th>재평가</th><td colSpan={3}>{state.reassessmentVitals ? `BP ${state.reassessmentVitals.bp} mmHg · PR ${state.reassessmentVitals.pr}회/분 · SpO₂ ${state.reassessmentVitals.spo2}%` : "기록 없음"}</td></tr>
+        </tbody></table>
+        <h2>구급대원 평가 및 응급처치</h2>
+        <table><tbody>
+          <tr><th>현장평가</th><td colSpan={3}>{SCENARIO.impression} (확정 진단 아님)</td><th>발생시각 근거</th><td colSpan={3}>{SCENARIO.onsetSource}</td></tr>
+          <tr><th>응급처치</th><td colSpan={3}>{SCENARIO.interventions.join(" · ")}</td><th>의료지도</th><td colSpan={3}>기록 없음 · 확인 필요</td></tr>
+        </tbody></table>
+        <h2>이송 및 인계</h2>
+        <table><tbody>
+          <tr><th>1차 이송기관</th><td colSpan={3}>{report.hospitalName}</td><th>2차·재이송</th><td>기록 없음 · 확인 필요</td><th>재이송 사유</th><td>기록 없음 · 확인 필요</td></tr>
+          <tr><th>환자 인수자</th><td>{report.receiver}</td><th>직종</th><td>{report.receiverRole}</td><th>인계상태</th><td>{state.stage === "complete" ? "인수 확인 완료" : "확인 전"}</td><th>인계시각</th><td>{report.latestTime}</td></tr>
+        </tbody></table>
+        <h2>공동대응 및 출동사항</h2>
+        <table><tbody>
+          <tr><th>공동대응</th><td>기록 없음 · 확인 필요</td><th>미이송</th><td>기록 없음 · 확인 필요</td><th>출동인원</th><td>구급대원 확인 필요</td><th>장애요인</th><td>기록 없음</td></tr>
+        </tbody></table>
+        <p className={styles.printFoot}>확정된 사건 기록으로 자동 작성된 초안이며, 담당 구급대원의 최종 확인 후 사용합니다.</p>
+      </section>
+
       {notice ? <div className={styles.toast} role="status"><CheckCircle2 size={17} /> {notice}</div> : null}
     </section>
   );
 }
 
-function ActivityReport({ report, state }: { report: ReportViewModel; state: DemoState }) {
+function ActivityReport({ report, state, scenario }: { report: ReportViewModel; state: DemoState; scenario: ScenarioView }) {
   const events = report.events.slice(-12);
   const visibleEvents = events.length ? events : [{ id: 0, time: "—", actor: "시스템", title: "기록 없음", detail: "사건 진행 시 자동으로 기록됩니다." } as DemoEvent];
 
@@ -479,9 +587,9 @@ function ActivityReport({ report, state }: { report: ReportViewModel; state: Dem
           <div className={styles.sectionHeading}><div><Stethoscope size={18} /><h2>현장 평가·처치</h2></div></div>
           <dl className={styles.detailList}>
             <div><dt>의식 수준</dt><dd>AVPU {displayValue(state.avpu)}</dd><span>구급대원 직접 확인</span></div>
-            <div><dt>주요 증상</dt><dd>흉통 · 식은땀 · 오심</dd><span>PTT 후 확인</span></div>
-            <div><dt>12유도 심전도</dt><dd>시행 확인 · 상세 소견 미상</dd><span>구급대 기록</span></div>
-            <div><dt>시행 처치</dt><dd>심전도 감시 · 정맥로 확보</dd><span>구급대 확인</span></div>
+            <div><dt>주요 증상</dt><dd>{scenario.symptoms.join(" · ") || report.chiefComplaint}</dd><span>확인된 사건 기록</span></div>
+            <div><dt>12유도 심전도</dt><dd>{scenario.interventions.find((item) => item.includes("심전도")) ?? "기록 없음"}</dd><span>확인된 처치 기록</span></div>
+            <div><dt>시행 처치</dt><dd>{scenario.interventions.join(" · ") || "기록 없음"}</dd><span>확인된 사건 기록</span></div>
           </dl>
         </section>
 
@@ -489,7 +597,7 @@ function ActivityReport({ report, state }: { report: ReportViewModel; state: Dem
           <div className={styles.sectionHeading}><div><Building2 size={18} /><h2>병원 수용문의·인계</h2></div></div>
           <dl className={styles.detailList}>
             <div><dt>수용 의료기관</dt><dd>{report.hospitalName}</dd><span>병원 회신 후 확정</span></div>
-            <div><dt>문의 결과</dt><dd>수용 가능</dd><span>회신 이력 기준</span></div>
+            <div><dt>문의 결과</dt><dd>{state.destinationConfirmed ? "수용 회신 후 이송지 확인" : "회신 확인 전"}</dd><span>회신 이력 기준</span></div>
             <div><dt>환자 인수자</dt><dd>{report.receiverRole} {report.receiver}</dd><span>병원 입력</span></div>
             <div><dt>인계 상태</dt><dd>{state.stage === "complete" ? "인수 확인 완료" : "인수 확인 전"}</dd><span>업무 버튼 기록</span></div>
           </dl>
@@ -516,7 +624,8 @@ function ActivityReport({ report, state }: { report: ReportViewModel; state: Dem
   );
 }
 
-function CardioReport({ report, state }: { report: ReportViewModel; state: DemoState }) {
+function CardioReport({ report, state, scenario }: { report: ReportViewModel; state: DemoState; scenario: ScenarioView }) {
+  const ecgRecord = scenario.interventions.find((item) => item.includes("심전도")) ?? "기록 없음";
   return (
     <>
       <section className={styles.section}>
@@ -525,10 +634,10 @@ function CardioReport({ report, state }: { report: ReportViewModel; state: DemoS
           <span>확정 진단이 아닌 병원 전 평가 기록입니다.</span>
         </div>
         <div className={styles.cardioHero}>
-          <div><span>주호소</span><strong>쥐어짜는 양상의 흉통</strong><small>환자 진술 · PTT 확인</small></div>
-          <div><span>증상 발생시각</span><strong>{SCENARIO.onset}</strong><small>{SCENARIO.onsetSource}</small></div>
+          <div><span>주호소</span><strong>{report.chiefComplaint}</strong><small>확인된 사건 기록</small></div>
+          <div><span>증상 발생시각</span><strong>{scenario.onset}</strong><small>{scenario.onsetSource}</small></div>
           <div><span>최초 환자 접촉</span><strong>{report.events.find((event) => event.title === "환자 접촉")?.time ?? "—"}</strong><small>업무 버튼 기록</small></div>
-          <div><span>현장 평가</span><strong>급성 관상동맥증후군 의심</strong><small>구급대원 최종 확인 필요</small></div>
+          <div><span>현장 평가</span><strong>{scenario.impression}</strong><small>구급대원 최종 확인 필요</small></div>
         </div>
       </section>
 
@@ -536,20 +645,18 @@ function CardioReport({ report, state }: { report: ReportViewModel; state: DemoS
         <section className={styles.section}>
           <div className={styles.sectionHeading}><div><Activity size={18} /><h2>흉통·동반증상</h2></div></div>
           <div className={styles.checkTable}>
-            <div><span><Check size={13} /></span><strong>흉통</strong><small>쥐어짜는 양상</small></div>
-            <div><span><Check size={13} /></span><strong>식은땀</strong><small>동반됨</small></div>
-            <div><span><Check size={13} /></span><strong>오심</strong><small>동반됨</small></div>
-            <div data-muted="true"><span>—</span><strong>실신</strong><small>확인되지 않음</small></div>
+            {scenario.symptoms.length ? scenario.symptoms.map((symptom) => (
+              <div key={symptom}><span><Check size={13} /></span><strong>{symptom}</strong><small>확인된 사건 기록</small></div>
+            )) : <div data-muted="true"><span>—</span><strong>동반증상 기록 없음</strong><small>미확인을 ‘없음’으로 판단하지 않음</small></div>}
           </div>
         </section>
 
         <section className={styles.section}>
           <div className={styles.sectionHeading}><div><Pill size={18} /><h2>과거력·복용약</h2></div></div>
           <dl className={styles.detailList}>
-            <div><dt>심혈관 과거력</dt><dd>심부전</dd><span>환자정보 확인본</span></div>
-            <div><dt>기타 과거력</dt><dd>당뇨</dd><span>환자정보 확인본</span></div>
-            <div><dt>항응고제</dt><dd>와파린 복용 진술</dd><span>약제 확인 필요</span></div>
-            <div><dt>알레르기</dt><dd>미상</dd><span>임의 입력 금지</span></div>
+            <div><dt>기저질환</dt><dd>{scenario.history.join(" · ") || "미확인"}</dd><span>확인된 환자정보</span></div>
+            <div><dt>복용약</dt><dd>{scenario.medication}</dd><span>약제 확인 필요</span></div>
+            <div><dt>알레르기</dt><dd>{scenario.allergy}</dd><span>임의 입력 금지</span></div>
           </dl>
         </section>
       </div>
@@ -559,7 +666,7 @@ function CardioReport({ report, state }: { report: ReportViewModel; state: DemoS
         <div className={styles.transferGrid}>
           <div><span>최초 혈압</span><strong>{displayValue(state.vitals.bp)} mmHg</strong><small>측정시각과 함께 전달</small></div>
           <div><span>최초 SpO₂</span><strong>{displayValue(state.vitals.spo2)}%</strong><small>산소 투여 전·후 구분 필요</small></div>
-          <div><span>12유도 심전도</span><strong>시행 확인 · 상세 소견 미상</strong><small>판독 확정값 아님</small></div>
+          <div><span>12유도 심전도</span><strong>{ecgRecord}</strong><small>확인된 기록만 표시</small></div>
           <div><span>최종 이송지</span><strong>{report.hospitalName}</strong><small>수용 회신 후 구급대원 확정</small></div>
         </div>
       </section>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import "./globals.css";
+import { AuthProvider } from "@/components/auth/AuthProvider";
 
 const title = "EMS Relay | 심혈관 응급환자 실시간 인계";
 const description =
@@ -25,6 +26,7 @@ export async function generateMetadata(): Promise<Metadata> {
       shortcut: "/ems-relay-icon.png",
       apple: "/ems-relay-icon.png",
     },
+    manifest: "/manifest.webmanifest",
     openGraph: {
       title,
       description,
@@ -48,7 +50,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body><AuthProvider>{children}</AuthProvider></body>
     </html>
   );
 }

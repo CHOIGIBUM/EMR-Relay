@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Activity,
   AlertCircle,
@@ -22,9 +22,7 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
-import { CARDIO_DEMO_DISPATCH } from "@/lib/cardioDemoData";
-import { getHospitalDirectory } from "@/lib/emsApi";
-import { HOSPITALS, SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type HospitalOption } from "./DemoContext";
+import { STAGE_LABEL, stageAtLeast, useDemo } from "./DemoContext";
 import styles from "./ControlConsole.module.css";
 
 function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "teal" | "amber" | "green" | "red" }) {
@@ -32,45 +30,14 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 }
 
 export default function ControlConsole() {
-  const { state, selectedHospital } = useDemo();
-  const [hospitalOptions, setHospitalOptions] = useState<HospitalOption[]>(HOSPITALS);
-  const [directoryState, setDirectoryState] = useState<"idle" | "ready" | "error">("idle");
+  const { state, selectedHospital, scenario: SCENARIO, hospitals: HOSPITALS } = useDemo();
+  const hospitalOptions = HOSPITALS;
+  const directoryState = hospitalOptions.length ? "ready" : "error";
   const [toast, setToast] = useState<string | null>(null);
   const hasRequest = stageAtLeast(state.stage, "coordination-requested") || state.stage === "declined";
   const arrivedAtHospital = stageAtLeast(state.stage, "hospital-arrived") && state.stage !== "declined";
   const timeFor = (...titles: string[]) =>
     [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
-
-  useEffect(() => {
-    if (!hasRequest) return;
-
-    const controller = new AbortController();
-    getHospitalDirectory({
-      caseId: SCENARIO.sourceCaseId,
-      latitude: CARDIO_DEMO_DISPATCH.location.latitude,
-      longitude: CARDIO_DEMO_DISPATCH.location.longitude,
-    }, { signal: controller.signal })
-      .then(({ data }) => {
-        const options: HospitalOption[] = data.hospitals.map((hospital) => ({
-          id: hospital.hospital_id,
-          name: hospital.display_name,
-          type: hospital.care_level,
-          distance: `${hospital.distance_km.toFixed(1)} km`,
-          eta: `${hospital.eta_minutes}분`,
-          location: hospital.region_label,
-          reference: hospital.reference_capabilities,
-        }));
-        setHospitalOptions(options);
-        setDirectoryState("ready");
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        setHospitalOptions([]);
-        setDirectoryState("error");
-      });
-
-    return () => controller.abort();
-  }, [hasRequest]);
 
   const requestState = useMemo(() => {
     if (state.stage === "coordination-requested") return { label: "연락 지원 요청", tone: "amber" as const, detail: "구급대가 병원 문의 지원을 요청했습니다. 임상 판단이나 이송지 선택 없이 연락을 지원합니다." };
@@ -162,13 +129,13 @@ export default function ControlConsole() {
                   </div>
                   <div className={styles.keyFacts}>
                     <div><span>발생시각</span><strong>{SCENARIO.onset}</strong><small>{SCENARIO.onsetSource}</small></div>
-                    <div><span>동반증상</span><strong>{SCENARIO.symptoms.join(" · ")}</strong><small>환자 진술·현장 관찰</small></div>
+                    <div><span>동반증상</span><strong>{SCENARIO.symptoms.join(" · ") || "미확인"}</strong><small>환자 진술·현장 관찰</small></div>
                     <div><span>복용약</span><strong>{SCENARIO.medication}</strong><small>진술 기반 · 약제 확인 필요</small></div>
                   </div>
                 </section>
 
                 <section className={styles.candidates}>
-                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>구급대 표시 병원 후보</h2></div><span>{directoryState === "idle" ? "기관정보 조회 중" : directoryState === "error" ? "기관정보 연결 안 됨" : "거리·ETA·기관정보 참고"}</span></div>
+                  <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>구급대 표시 병원 후보</h2></div><span>{directoryState === "error" ? "기관정보 연결 안 됨" : "거리·ETA·기관정보 참고"}</span></div>
                   <div className={styles.referenceNotice}><Info size={16} /><span>가까운 순이 추천 순위는 아닙니다. 공공정보만으로 수용 가능 여부를 판단하지 않습니다.</span></div>
                   {directoryState === "error" && <div className={styles.directoryError}><AlertCircle size={18} /><span><strong>기관정보를 불러오지 못했습니다.</strong><small>재조회 전까지 병원 후보를 표시하지 않습니다.</small></span></div>}
                   <div className={styles.candidateList}>

@@ -1,0 +1,44 @@
+.page {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  color: #10283d;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(8, 127, 140, 0.14), transparent 27rem),
+    linear-gradient(150deg, #eff7f8 0%, #f8fbfc 50%, #e8f1f5 100%);
+}
+
+.card {
+  width: min(100%, 480px);
+  padding: 36px;
+  border: 1px solid rgba(178, 201, 211, 0.8);
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: 0 28px 75px rgba(24, 60, 78, 0.15);
+}
+
+.brand { display: flex; align-items: center; gap: 14px; }
+.brand img { width: 52px; height: 52px; border-radius: 14px; box-shadow: 0 8px 22px rgba(6, 98, 111, 0.22); }
+.brand strong { display: block; color: #09253f; font-size: 24px; letter-spacing: -0.04em; }
+.brand span { display: block; margin-top: 2px; color: #6c7f8d; font-size: 13px; }
+.card h1 { margin: 34px 0 8px; color: #10283d; font-size: 26px; letter-spacing: -0.04em; }
+.card > p { margin: 0 0 24px; color: #617485; font-size: 15px; line-height: 1.65; }
+.primary, .roleButton, .linkButton {
+  width: 100%; min-height: 52px; border-radius: 14px; font-weight: 800;
+}
+.primary { border: 0; color: #fff; background: linear-gradient(135deg, #087f8c, #056b76); box-shadow: 0 12px 24px rgba(8, 127, 140, 0.22); }
+.primary:disabled { opacity: .55; }
+.divider { display: flex; align-items: center; gap: 10px; margin: 24px 0 16px; color: #8a9aa4; font-size: 12px; }
+.divider::before, .divider::after { content: ""; height: 1px; flex: 1; background: #dbe6ea; }
+.roles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.roleButton { min-height: 74px; padding: 10px 4px; border: 1px solid #cbdce2; color: #234052; background: #f7fafb; font-size: 13px; }
+.roleButton:hover { border-color: #55a4ad; color: #056b76; background: #edf8f8; }
+.status { min-height: 220px; display: grid; place-items: center; text-align: center; color: #617485; }
+.error { margin-top: 16px; padding: 12px 14px; border-radius: 11px; color: #a33138; background: #fff0f1; font-size: 13px; }
+.linkButton { margin-top: 12px; border: 1px solid #cbdce2; color: #335163; background: #fff; }
+
+@media (max-width: 520px) {
+  .page { padding: 0; align-items: stretch; }
+  .card { width: 100%; min-height: 100dvh; padding: max(28px, env(safe-area-inset-top)) 22px max(28px, env(safe-area-inset-bottom)); border: 0; border-radius: 0; }
+}

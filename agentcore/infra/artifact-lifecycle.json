@@ -1,0 +1,17 @@
+{
+  "Rules": [
+    {
+      "ID": "ExpireOldAgentPackages",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "EMSRelayProposal/"
+      },
+      "NoncurrentVersionExpiration": {
+        "NoncurrentDays": 7
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 1
+      }
+    }
+  ]
+}

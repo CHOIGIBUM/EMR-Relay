@@ -21,6 +21,14 @@ export const ALLOWED_FACT_PATHS = [
   "treatment.oxygen",
   "treatment.medications",
   "treatment.procedures",
+  "reassessment.systolicBp",
+  "reassessment.diastolicBp",
+  "reassessment.pulse",
+  "reassessment.respiratoryRate",
+  "reassessment.spo2",
+  "reassessment.temperature",
+  "reassessment.glucose",
+  "reassessment.avpu",
   "transport.reassessment",
 ] as const;
 
@@ -113,6 +121,19 @@ export type ConfirmRequest = {
   decisions: ConfirmDecision[];
 };
 
+export type DirectFactInput = {
+  path: FactPath;
+  value: ProposalValue;
+  observedAt?: string;
+  sourceText: string;
+};
+
+export type DirectFactsRequest = {
+  expectedVersion: number;
+  kind: "initial" | "reassessment";
+  facts: DirectFactInput[];
+};
+
 export type AuditEvent = {
   auditId: string;
   caseId: string;
@@ -131,6 +152,189 @@ export type CaseView = {
   confirmedState: ConfirmedState;
   proposals: AgentProposal[];
   audit: AuditEvent[];
+  meta?: CaseMeta;
+  events?: CaseEvent[];
+  hospitalRequests?: HospitalRequest[];
+  report?: AmbulanceActivityReport;
+};
+
+export const PRINCIPAL_ROLES = ["paramedic", "control", "hospital", "admin"] as const;
+export type PrincipalRole = (typeof PRINCIPAL_ROLES)[number];
+
+export type AuthPrincipal = {
+  sub: string;
+  username?: string;
+  hospitalId?: string;
+  roles: PrincipalRole[];
+};
+
+export const CASE_STAGES = [
+  "ASSIGNED",
+  "DISPATCHING",
+  "ON_SCENE",
+  "PATIENT_CONTACT",
+  "ASSESSING",
+  "HOSPITAL_REQUESTED",
+  "DESTINATION_CONFIRMED",
+  "TRANSPORTING",
+  "ARRIVED_HOSPITAL",
+  "HANDOFF",
+  "COMPLETE",
+] as const;
+export type CaseStage = (typeof CASE_STAGES)[number];
+
+export const CASE_EVENT_TYPES = [
+  "CASE_ASSIGNED",
+  "DISPATCH_STARTED",
+  "ARRIVED_SCENE",
+  "PATIENT_CONTACT",
+  "PATIENT_FACTS_CONFIRMED",
+  "HOSPITAL_REQUEST_CREATED",
+  "HOSPITAL_REQUEST_VIEWED",
+  "ADDITIONAL_INFO_REQUESTED",
+  "ADDITIONAL_INFO_SENT",
+  "HOSPITAL_RESPONSE_RECORDED",
+  "DESTINATION_CONFIRMED_BY_PARAMEDIC",
+  "TRANSPORT_STARTED",
+  "REASSESSMENT_CONFIRMED",
+  "ARRIVED_HOSPITAL",
+  "HANDOFF_SENT",
+  "HANDOFF_ACCEPTED",
+  "REPORT_DRAFTED",
+  "REPORT_REVIEWED",
+  "REPORT_FINALIZED",
+  "FHIR_PUBLISHED",
+] as const;
+export type CaseEventType = (typeof CASE_EVENT_TYPES)[number];
+
+export type CaseMeta = {
+  caseId: string;
+  version: number;
+  stage: CaseStage;
+  scenario?: string;
+  agency?: string;
+  unitId?: string;
+  vehicleNumber?: string;
+  assignedParamedicIds: string[];
+  destinationHospitalId?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CaseEvent = {
+  eventId: string;
+  caseId: string;
+  type: CaseEventType;
+  actorSub: string;
+  actorRole: PrincipalRole;
+  occurredAt: string;
+  version: number;
+  summary: string;
+  payload: Record<string, unknown>;
+};
+
+export type HospitalRequestStatus =
+  | "REQUESTED"
+  | "VIEWED"
+  | "INFO_REQUESTED"
+  | "INFO_SENT"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "CANCELLED";
+
+export type HospitalResponse = {
+  decision: "ACCEPTED" | "DECLINED";
+  reasonCode?: string;
+  reasonText?: string;
+  respondedBy: string;
+  respondedAt: string;
+};
+
+export type HospitalInformationRequest = {
+  message: string;
+  requestedBy: string;
+  requestedAt: string;
+};
+
+export type HospitalRequest = {
+  requestId: string;
+  caseId: string;
+  hospitalId: string;
+  hospitalName?: string;
+  status: HospitalRequestStatus;
+  requestedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  response?: HospitalResponse;
+  informationRequest?: HospitalInformationRequest;
+};
+
+export type CaseCommand = {
+  commandId: string;
+  type: CaseEventType;
+  expectedVersion?: number;
+  payload: Record<string, unknown>;
+};
+
+export type CommandResult = {
+  caseId: string;
+  version: number;
+  eventId: string;
+  eventType: CaseEventType;
+  occurredAt: string;
+};
+
+export type ReportStatus = "DRAFT" | "IN_REVIEW" | "FINALIZED";
+
+export type Annex5ReportDraft = {
+  schema: "KR_AMBULANCE_ACTIVITY_ANNEX5_MVP_V1";
+  generatedAt: string;
+  administrative: {
+    organization?: string;
+    vehicleNumber?: string;
+    documentNumber?: string;
+    approvals: Record<string, unknown>;
+  };
+  dispatchTimeline: {
+    caseId: string;
+    reportedAt?: string;
+    dispatchStartedAt?: string;
+    arrivedSceneAt?: string;
+    patientContactAt?: string;
+    transportStartedAt?: string;
+    arrivedHospitalAt?: string;
+    handoffAcceptedAt?: string;
+  };
+  patientIdentity: Record<string, unknown>;
+  symptomsAndOccurrence: Record<string, unknown>;
+  patientAssessment: {
+    consciousness: Record<string, unknown>;
+    pupils: Record<string, unknown>;
+    vitalSigns: Array<Record<string, unknown>>;
+    severityLevel: Record<string, unknown>;
+  };
+  paramedicAssessment: Record<string, unknown>;
+  emergencyCare: Record<string, unknown>;
+  medicalDirection: Record<string, unknown>;
+  transport: Record<string, unknown>;
+  handoff: Record<string, unknown>;
+  mutualAidAndNonTransport: Record<string, unknown>;
+  crewAndBarriers: Record<string, unknown>;
+  missingFields: string[];
+};
+
+export type AmbulanceActivityReport = {
+  reportId: string;
+  caseId: string;
+  version: number;
+  status: ReportStatus;
+  draft: Annex5ReportDraft;
+  reviewedFields: string[];
+  createdAt: string;
+  createdBy: string;
+  updatedAt: string;
+  finalizedAt?: string;
+  finalizedBy?: string;
 };
 
 export type ValidationResult<T> =

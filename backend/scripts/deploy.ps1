@@ -9,6 +9,14 @@ param(
   [string]$CorsOrigins = "http://localhost:3000",
   [ValidateSet("ems-relay/external-api-keys")]
   [string]$ExternalApiSecretName = "ems-relay/external-api-keys",
+  [string]$AgentRuntimeArn = "arn:aws:bedrock-agentcore:us-west-2:462993243992:runtime/EMSRelayProposal-plEVqA20bj",
+  [string]$AgentRuntimeQualifier = "",
+  [ValidateSet("true", "false")]
+  [string]$AllowDirectBedrockFallback = "false",
+  [string]$HealthLakeDatastoreArn = "",
+  [string]$HealthLakeDatastoreEndpoint = "",
+  [string]$CognitoCallbackUrls = "http://localhost:3000/auth/callback",
+  [string]$CognitoLogoutUrls = "http://localhost:3000",
   [string]$ArtifactBucket = ""
 )
 
@@ -76,7 +84,14 @@ try {
     "BedrockModelId=$ModelId",
     "BedrockRegion=$Region",
     "CorsOrigins=$CorsOrigins",
-    "ExternalApiSecretName=$ExternalApiSecretName"
+    "ExternalApiSecretName=$ExternalApiSecretName",
+    "AgentRuntimeArn=$AgentRuntimeArn",
+    "AgentRuntimeQualifier=$AgentRuntimeQualifier",
+    "AllowDirectBedrockFallback=$AllowDirectBedrockFallback",
+    "HealthLakeDatastoreArn=$HealthLakeDatastoreArn",
+    "HealthLakeDatastoreEndpoint=$HealthLakeDatastoreEndpoint",
+    "CognitoCallbackUrls=$CognitoCallbackUrls",
+    "CognitoLogoutUrls=$CognitoLogoutUrls"
   )
   if ($ArtifactBucket) {
     $DeployArguments += @("--s3-bucket", $ArtifactBucket)

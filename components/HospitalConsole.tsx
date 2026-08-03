@@ -23,7 +23,7 @@ import {
   UserRound,
   X,
 } from "lucide-react";
-import { SCENARIO, STAGE_LABEL, stageAtLeast, useDemo } from "./DemoContext";
+import { STAGE_LABEL, stageAtLeast, useDemo } from "./DemoContext";
 import styles from "./HospitalConsole.module.css";
 
 type Modal = "info" | "accept" | "decline" | null;
@@ -33,7 +33,7 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 }
 
 export default function HospitalConsole() {
-  const { state, dispatch, selectedHospital } = useDemo();
+  const { state, dispatch, selectedHospital, scenario: SCENARIO } = useDemo();
   const [modal, setModal] = useState<Modal>(null);
   const [infoFields, setInfoFields] = useState<string[]>(["재평가 활력징후", "항혈소판제·항응고제 복용"]);
   const [declineReason, setDeclineReason] = useState("현재 진료 여력 부족");
@@ -140,9 +140,9 @@ export default function HospitalConsole() {
                   </div>
                   <div className={styles.clinicalRows}>
                     <div><span>증상 발생</span><strong>{SCENARIO.onset}</strong><small>{SCENARIO.onsetSource}</small></div>
-                    <div><span>동반증상</span><strong>{SCENARIO.symptoms.join(" · ")}</strong><small>환자 진술·현장 관찰</small></div>
+                    <div><span>동반증상</span><strong>{SCENARIO.symptoms.join(" · ") || "미확인"}</strong><small>환자 진술·현장 관찰</small></div>
                     <div><span>흉통</span><strong>{SCENARIO.pain.region} · {SCENARIO.pain.radiation} 방사</strong><small>NRS {SCENARIO.pain.severityNrs} · {SCENARIO.pain.quality}</small></div>
-                    <div><span>기저질환</span><strong>{SCENARIO.history.join(" · ")}</strong><small>환자·보호자 진술</small></div>
+                    <div><span>기저질환</span><strong>{SCENARIO.history.join(" · ") || "미확인"}</strong><small>환자·보호자 진술</small></div>
                     <div data-tone="unknown"><span>복용약</span><strong>{SCENARIO.medication}</strong><small>진술 기반 · 약제 확인 필요</small></div>
                     <div data-tone="unknown"><span>미상 항목</span><strong>{SCENARIO.unresolvedItems.join(" · ")}</strong><small>임의로 보완하지 않음</small></div>
                   </div>
@@ -158,7 +158,7 @@ export default function HospitalConsole() {
                   <section className={styles.incomingCard}>
                     <div className={styles.sectionTitle}><div><Navigation size={19} /><h2>도착 예정</h2></div><Badge tone={state.stage === "complete" ? "green" : "teal"}>{STAGE_LABEL[state.stage]}</Badge></div>
                     <div className={styles.routePanel}><div className={styles.map}><span><Ambulance size={17} /></span><i /><b><Hospital size={17} /></b></div><div><span>{arrivedAtHospital ? "도착" : "현재 ETA"}</span><strong>{arrivedAtHospital ? "도착 확인" : selectedHospital?.eta ?? "—"}</strong><small>{SCENARIO.locationShort} → {selectedHospital?.name}</small></div></div>
-                    {state.reassessmentVitals && <div className={styles.updateLine}><Activity size={16} /><strong>{timeFor("이송 중 재평가", "이송 전 재평가 확인", "추가정보 회신")} 재평가</strong><span>AVPU A · BP {state.reassessmentVitals.bp} mmHg · SpO₂ {state.reassessmentVitals.spo2}% · {state.reassessmentSummary}</span></div>}
+                    {state.reassessmentVitals && <div className={styles.updateLine}><Activity size={16} /><strong>{timeFor("이송 중 재평가", "이송 전 재평가 확인", "추가정보 회신")} 재평가</strong><span>AVPU {state.avpu} · BP {state.reassessmentVitals.bp} mmHg · SpO₂ {state.reassessmentVitals.spo2}% · {state.reassessmentSummary}</span></div>}
                   </section>
                 )}
 
@@ -170,8 +170,8 @@ export default function HospitalConsole() {
                       <div><dt>주증상</dt><dd>{SCENARIO.chiefComplaint}</dd></div>
                       <div><dt>발생시각</dt><dd>{SCENARIO.onset} · {SCENARIO.onsetSource}</dd></div>
                       <div><dt>최초 활력</dt><dd>BP {state.vitals.bp} · PR {state.vitals.pr} · SpO₂ {state.vitals.spo2}%</dd></div>
-                      <div><dt>재평가</dt><dd>{state.reassessmentVitals ? `AVPU A · BP ${state.reassessmentVitals.bp} · ${state.reassessmentSummary}` : "추가 기록 없음"}</dd></div>
-                      <div><dt>미상</dt><dd>{SCENARIO.unresolvedItems.join(" · ")}</dd></div>
+                      <div><dt>재평가</dt><dd>{state.reassessmentVitals ? `AVPU ${state.avpu} · BP ${state.reassessmentVitals.bp} · ${state.reassessmentSummary}` : "추가 기록 없음"}</dd></div>
+                      <div><dt>미상</dt><dd>{SCENARIO.unresolvedItems.join(" · ") || "기록 없음"}</dd></div>
                     </dl>
                   </section>
                 )}

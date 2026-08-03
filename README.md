@@ -15,13 +15,14 @@ npm run dev
 
 ## 역할별 화면
 
-- 구급대원 모바일: `http://localhost:3000/?view=mobile`
-- 이송조정 상황실: `http://localhost:3000/?view=control`
-- 병원 수용 웹: `http://localhost:3000/?view=hospital`
-- 구급활동 기록: `http://localhost:3000/?view=report`
-- 전체 시연 흐름: `http://localhost:3000/?view=workflow`
+- 로그인: `http://localhost:3000/login`
+- 구급대원 모바일: `http://localhost:3000/paramedic`
+- 이송조정 상황실: `http://localhost:3000/control`
+- 병원 수용 웹: `http://localhost:3000/hospital`
+- 구급활동 기록: `http://localhost:3000/reports`
+- 로컬 전체 시연 흐름: `http://localhost:3000/demo/workflow`
 
-같은 브라우저에서 여러 탭을 열면 하나의 사건 상태가 실시간으로 동기화됩니다. 상단 `초기화`를 누르면 처음 상태로 돌아갑니다.
+운영 경로는 Cognito 역할 권한을 확인하고 REST 스냅샷을 단일 기준으로 사용합니다. WebSocket 변경 알림을 받으면 사건을 다시 조회합니다. `/demo/workflow`에서만 같은 브라우저의 로컬 상태를 공유합니다.
 
 ## 시연 사건
 
@@ -41,6 +42,7 @@ npm run dev
 - 출동 시작·현장 도착·환자 접촉 등 업무 버튼 시각 자동 기록
 - BP, PR, RR, SpO₂, 체온, 혈당, AVPU의 직접 입력과 측정시각 보존
 - 누르고 말한 내용을 항목별 변경안으로 정리하고 구급대원이 선택한 값만 반영
+- 실제 마이크 PCM을 Amazon Transcribe Streaming으로 전송하고 중앙 화면에 인식 문장을 표시
 - 기관 참고정보·거리·ETA 기반 병원 목록과 병원별 순차 수용 문의
 - 추가정보 요청, 수용 곤란 사유, 수용 가능 회신, 전화 연결 기록
 - 병원 회신과 구급대원의 최종 이송지 확인을 분리
@@ -73,5 +75,6 @@ AWS API가 준비되면 `.env.local`에서 `NEXT_PUBLIC_EMS_API_MODE=remote`와
 - 병원 참고정보: `GET /hospitals?case_id=&lat=&lng=`
 - Agent 응답은 항상 `pending_review: true`이며, 원격 모드에서는 모든 항목의 승인·제외 결정을 확정 API가 성공적으로 저장한 뒤에만 화면의 확정 상태가 변경됩니다.
 - `NEXT_PUBLIC_EMS_REVIEWER_ID`는 해커톤용 검토자 식별자이며 운영에서는 Cognito 로그인 정보로 대체합니다.
+- 운용 모드에는 `NEXT_PUBLIC_EMS_OPERATIONAL_MODE=remote`, 로컬 개발 역할 로그인에는 `NEXT_PUBLIC_EMS_DEV_AUTH=true`를 사용합니다.
 
 현재 배포된 AWS 백엔드는 API Gateway, Lambda, DynamoDB까지 실제 연결되어 있습니다. Bedrock Claude 호출은 AWS 계정의 결제수단과 Anthropic 모델 사용 등록이 활성화된 후 사용할 수 있으며, 준비 전에는 명시적인 503 응답을 반환해 기존 확정 상태를 변경하지 않습니다.
