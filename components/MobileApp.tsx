@@ -42,6 +42,14 @@ import {
   type VitalValues,
 } from "./DemoContext";
 import type { CardioPttProposal, CardioPttUpdate } from "@/lib/cardioDemoData";
+import {
+  confirmVoiceProposal,
+  createVoiceProposal,
+  EMS_API_CONFIG,
+  EmsApiError,
+  voiceProposalToPttUpdate,
+} from "@/lib/emsApi";
+import type { EmsApiTransport, VoiceProposalResponse } from "@/lib/emsApiTypes";
 import styles from "./MobileApp.module.css";
 
 type Tab = "field" | "patient" | "hospital" | "handoff";
@@ -50,10 +58,10 @@ type HospitalCandidateStatus = "available" | "locked" | "pending" | "info" | "ac
 
 type VoiceResult = {
   update: CardioPttUpdate;
-  source: "local-agent";
+  response: VoiceProposalResponse;
+  transport: EmsApiTransport;
+  usedLocalFallback: boolean;
 };
-
-const API_BASE = (process.env.NEXT_PUBLIC_EMS_API_BASE ?? "/api/local").replace(/\/$/, "");
 
 function defaultTab(stage: ReturnType<typeof useDemo>["state"]["stage"]): Tab {
   if (["coordination-requested", "hospital-requested", "info-requested", "info-sent", "declined", "accepted", "destination-confirmed"].includes(stage)) return "hospital";
@@ -107,6 +115,9 @@ export default function MobileApp() {
   const [tab, setTab] = useState<Tab>(() => defaultTab(state.stage));
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
   const [voiceResult, setVoiceResult] = useState<VoiceResult | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceConfirmError, setVoiceConfirmError] = useState<string | null>(null);
+  const [isConfirmingVoice, setIsConfirmingVoice] = useState(false);
   const [acceptedProposalIds, setAcceptedProposalIds] = useState<string[]>([]);
   const [transcriptIndex, setTranscriptIndex] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
@@ -168,6 +179,9 @@ export default function MobileApp() {
     voiceRequestIdRef.current += 1;
     voiceRequestRef.current?.abort();
     voiceRequestRef.current = null;
+    setVoiceError(null);
+    setVoiceConfirmError(null);
+    setIsConfirmingVoice(false);
     setVoicePhase(null);
   };
 
@@ -176,6 +190,11 @@ export default function MobileApp() {
     voiceRequestIdRef.current += 1;
     voiceRequestRef.current?.abort();
     voiceRequestRef.current = null;
+    setVoiceError(null);
+    setVoiceConfirmError(null);
+    setIsConfirmingVoice(false);
+    setVoiceResult(null);
+    setAcceptedProposalIds([]);
     setTranscriptIndex(0);
     setVoicePhase("listening");
   };
@@ -193,35 +212,102 @@ export default function MobileApp() {
 
     void (async () => {
       try {
-        const response = await fetch(`${API_BASE}/agent`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "STRUCTURE_VOICE_UPDATE",
-            incidentId: SCENARIO.id,
-            locale: "ko-KR",
-            updateId: pendingUpdate.id,
-            transcript: pendingUpdate.transcript,
-          }),
-          signal: controller.signal,
-        });
-        if (!response.ok) throw new Error(`Voice agent request failed: ${response.status}`);
-        const payload = await response.json() as { update?: CardioPttUpdate };
+        const result = await createVoiceProposal({
+          caseId: SCENARIO.sourceCaseId,
+          updateId: pendingUpdate.id,
+          transcript: pendingUpdate.transcript,
+          locale: "ko-KR",
+        }, { signal: controller.signal });
         if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
-        if (!payload.update || payload.update.id !== pendingUpdate.id) throw new Error("Voice update contract mismatch");
-        const update = payload.update;
-        setVoiceResult({ update, source: "local-agent" });
-        setAcceptedProposalIds(update.proposals.map((proposal) => proposal.id));
+        const update = voiceProposalToPttUpdate(pendingUpdate, result.data);
+        setVoiceResult({
+          update,
+          response: result.data,
+          transport: result.transport,
+          usedLocalFallback: result.usedLocalFallback,
+        });
+        // Nothing is selected by default. A user gesture is required for every
+        // field before CONFIRM_PTT can write to the confirmed state.
+        setAcceptedProposalIds([]);
+        setVoiceError(null);
         setVoicePhase("review");
-      } catch {
+      } catch (error) {
         if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
         setVoiceResult(null);
         setAcceptedProposalIds([]);
+        setVoiceError(error instanceof EmsApiError
+          ? error.message
+          : "음성 변경안을 준비하지 못했습니다. 다시 시도하거나 직접 입력하세요.");
         setVoicePhase("review");
       } finally {
         if (voiceRequestIdRef.current === requestId) voiceRequestRef.current = null;
       }
     })();
+  };
+
+  const applyReviewedVoice = async () => {
+    const reviewedResult = voiceResult;
+    if (!reviewedResult || !acceptedProposalIds.length || isConfirmingVoice) return;
+
+    const acceptedIds = new Set(acceptedProposalIds);
+    const allIds = reviewedResult.update.proposals.map((proposal) => proposal.id);
+    setVoiceConfirmError(null);
+
+    if (reviewedResult.transport === "remote") {
+      const proposalSetId = reviewedResult.response.proposal_set_id;
+      const expectedVersion = reviewedResult.response.base_version;
+      if (!proposalSetId || expectedVersion === null) {
+        setVoiceConfirmError("서버 응답에 변경안 번호 또는 기준 버전이 없어 확정하지 않았습니다. 다시 입력해 주세요.");
+        return;
+      }
+      if (!EMS_API_CONFIG.reviewerId) {
+        setVoiceConfirmError("확인자 정보가 설정되지 않아 확정하지 않았습니다. 로그인 정보 또는 환경 설정을 확인해 주세요.");
+        return;
+      }
+
+      const requestId = voiceRequestIdRef.current + 1;
+      voiceRequestIdRef.current = requestId;
+      const controller = new AbortController();
+      voiceRequestRef.current?.abort();
+      voiceRequestRef.current = controller;
+      setIsConfirmingVoice(true);
+
+      try {
+        await confirmVoiceProposal({
+          caseId: reviewedResult.response.case_id,
+          proposalSetId,
+          expectedVersion,
+          reviewedBy: EMS_API_CONFIG.reviewerId,
+          decisions: reviewedResult.response.proposed_updates.map((proposal) => acceptedIds.has(proposal.proposal_id)
+            ? { changeId: proposal.proposal_id, action: "accept" as const, value: proposal.value }
+            : { changeId: proposal.proposal_id, action: "reject" as const }),
+        }, { signal: controller.signal });
+        if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
+      } catch (error) {
+        if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
+        setVoiceConfirmError(error instanceof EmsApiError
+          ? error.message
+          : "확정 저장에 실패했습니다. 기존 환자정보는 변경되지 않았습니다.");
+        return;
+      } finally {
+        if (voiceRequestIdRef.current === requestId) {
+          voiceRequestRef.current = null;
+          setIsConfirmingVoice(false);
+        }
+      }
+    }
+
+    dispatch({
+      type: "CONFIRM_PTT",
+      updateId: reviewedResult.update.id,
+      acceptedProposalIds,
+      rejectedProposalIds: allIds.filter((id) => !acceptedIds.has(id)),
+      reviewedProposals: reviewedResult.update.proposals,
+    });
+    setVoicePhase(null);
+    setVoiceResult(null);
+    setVoiceConfirmError(null);
+    notify(`${acceptedProposalIds.length}개 항목을 확인값으로 반영했습니다.`);
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
@@ -841,14 +927,24 @@ export default function MobileApp() {
               <div className={styles.voiceReview}>
                 <span className={styles.reviewIcon}><ClipboardCheck size={25} /></span>
                 <h2>{voiceResult.update.title} 변경안을 확인하세요</h2>
-                <p>말한 내용에서 정리한 항목입니다. 선택한 값만 구급대원 확인 정보로 반영됩니다.</p>
+                <p>{voiceResult.response.review_summary.message} 선택한 값만 구급대원 확인 정보로 반영됩니다.</p>
                 <div className={styles.transcriptBox}>“{voiceResult.update.transcript}”</div>
+                {voiceResult.usedLocalFallback && (
+                  <div className={styles.warningBox}><AlertTriangle size={17} /><span><strong>원격 연결을 확인하세요</strong><small>명시적으로 허용된 로컬 검증 경로로 처리했습니다.</small></span></div>
+                )}
+                {voiceResult.response.warnings.length > 0 && (
+                  <div className={styles.warningBox}><AlertTriangle size={17} /><span><strong>확인 필요 {voiceResult.response.warnings.length}건</strong><small>{voiceResult.response.warnings.map((warning) => warning.message).join(" · ")}</small></span></div>
+                )}
+                {voiceConfirmError && (
+                  <div className={styles.warningBox} role="alert"><AlertTriangle size={17} /><span><strong>확정하지 못했습니다</strong><small>{voiceConfirmError}</small></span></div>
+                )}
                 <div className={styles.extractedList}>
                   {voiceResult.update.proposals.map((proposal) => {
                     const accepted = acceptedProposalIds.includes(proposal.id);
                     return (
                       <button
                         className={accepted ? styles.choiceActive : ""}
+                        disabled={isConfirmingVoice}
                         onClick={() => setAcceptedProposalIds((current) => current.includes(proposal.id) ? current.filter((id) => id !== proposal.id) : [...current, proposal.id])}
                         key={proposal.id}
                         aria-pressed={accepted}
@@ -861,23 +957,15 @@ export default function MobileApp() {
                   })}
                 </div>
                 <div className={styles.reviewActions}>
-                  <button onClick={cancelVoice}>취소</button>
-                  <button disabled={!acceptedProposalIds.length} onClick={() => {
-                    const allIds = voiceResult.update.proposals.map((proposal) => proposal.id);
-                    dispatch({
-                      type: "CONFIRM_PTT",
-                      updateId: voiceResult.update.id,
-                      acceptedProposalIds,
-                      rejectedProposalIds: allIds.filter((id) => !acceptedProposalIds.includes(id)),
-                    });
-                    setVoicePhase(null);
-                    setVoiceResult(null);
-                    notify(`${acceptedProposalIds.length}개 항목을 확인값으로 반영했습니다.`);
-                  }}><Check size={18} /> 선택 항목 반영</button>
+                  <button disabled={isConfirmingVoice} onClick={cancelVoice}>취소</button>
+                  <button disabled={!acceptedProposalIds.length || isConfirmingVoice} onClick={() => void applyReviewedVoice()}>
+                    {isConfirmingVoice ? <RefreshCw className={styles.spinning} size={18} /> : <Check size={18} />}
+                    {isConfirmingVoice ? "확정 저장 중" : "선택 항목 반영"}
+                  </button>
                 </div>
               </div>
             ) : (
-              <div className={styles.listeningPanel}><AlertTriangle size={28} /><h2>변경안을 불러오지 못했습니다</h2><p>기존 환자정보는 변경되지 않았습니다.</p><button onClick={cancelVoice}>닫기</button></div>
+              <div className={styles.listeningPanel}><AlertTriangle size={28} /><h2>변경안을 불러오지 못했습니다</h2><p>{voiceError ?? "기존 환자정보는 변경되지 않았습니다."}</p><button onClick={cancelVoice}>닫기</button></div>
             )}
           </div>
         )}

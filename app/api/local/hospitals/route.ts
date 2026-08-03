@@ -1,19 +1,19 @@
 import { CARDIO_DEMO_HOSPITALS } from "@/lib/cardioDemoData";
-import type { LocalHospitalsResponse } from "@/lib/localDemoTypes";
+import type { HospitalDirectoryResponse } from "@/lib/emsApiTypes";
 
 export async function GET(): Promise<Response> {
-  const response: LocalHospitalsResponse = {
+  const response: HospitalDirectoryResponse = {
     hospitals: CARDIO_DEMO_HOSPITALS.map((hospital) => ({
-      id: hospital.id,
-      name: hospital.alias,
-      type: hospital.careLevelLabel,
-      distance: `${hospital.distanceKm.toFixed(1)} km`,
-      eta: `${hospital.etaMinutes}분`,
-      location: hospital.regionLabel,
-      reference: [...hospital.referenceCapabilities],
+      hospital_id: hospital.id,
+      display_name: hospital.alias,
+      care_level: hospital.careLevelLabel,
+      region_label: hospital.regionLabel,
+      distance_km: hospital.distanceKm,
+      eta_minutes: hospital.etaMinutes,
+      reference_capabilities: [...hospital.referenceCapabilities],
     })),
-    dataSource: "local-demo-fixture",
-    referenceTimestamp: new Date().toISOString(),
+    reference_at: new Date().toISOString(),
+    source: "local_fixture",
   };
 
   return Response.json(response, { headers: { "Cache-Control": "no-store" } });

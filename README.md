@@ -1,6 +1,6 @@
 # EMS Relay 프론트엔드 MVP
 
-고령 심혈관 응급환자 한 건을 대상으로 출동 배정부터 현장 평가, 병원 수용 문의, 이송, 인계, 구급활동 기록 검토까지 이어서 시연하는 로컬 React 프론트엔드입니다.
+고령 심혈관 응급환자 한 건을 대상으로 출동 배정부터 현장 평가, 병원 수용 문의, 이송, 인계, 구급활동 기록 검토까지 이어서 시연하는 React 프론트엔드입니다. 로컬 fixture 모드와 AWS API 연결 모드를 모두 지원합니다.
 
 ## 바로 실행
 
@@ -64,4 +64,14 @@ npx tsc --noEmit
 node --test tests/workflow-state.test.mjs
 ```
 
-AWS API가 준비되면 `.env.local`에 `NEXT_PUBLIC_EMS_API_BASE`를 설정해 `/agent`와 `/hospitals` 응답을 교체할 수 있습니다.
+AWS API가 준비되면 `.env.local`에서 `NEXT_PUBLIC_EMS_API_MODE=remote`와
+`NEXT_PUBLIC_EMS_BACKEND_URL=https://…execute-api.ap-northeast-2.amazonaws.com`을 설정합니다.
+원격 장애를 로컬 데이터로 숨기지 않도록 `NEXT_PUBLIC_EMS_ALLOW_LOCAL_FALLBACK`의 기본값은 `false`입니다.
+
+- 음성 변경안: `POST /cases/{caseId}/voice-updates/proposals`
+- 검토 결과 확정: `POST /cases/{caseId}/confirm`
+- 병원 참고정보: `GET /hospitals?case_id=&lat=&lng=`
+- Agent 응답은 항상 `pending_review: true`이며, 원격 모드에서는 모든 항목의 승인·제외 결정을 확정 API가 성공적으로 저장한 뒤에만 화면의 확정 상태가 변경됩니다.
+- `NEXT_PUBLIC_EMS_REVIEWER_ID`는 해커톤용 검토자 식별자이며 운영에서는 Cognito 로그인 정보로 대체합니다.
+
+현재 배포된 AWS 백엔드는 API Gateway, Lambda, DynamoDB까지 실제 연결되어 있습니다. Bedrock Claude 호출은 AWS 계정의 결제수단 활성화 후 사용할 수 있으며, 활성화 전에는 `503 BEDROCK_BILLING_NOT_READY`를 반환해 기존 확정 상태를 변경하지 않습니다.

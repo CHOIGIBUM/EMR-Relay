@@ -255,7 +255,13 @@ type Action = (
   | { type: "LOAD_VITALS" }
   | { type: "SET_VITAL"; key: keyof VitalValues; value: string }
   | { type: "SET_AVPU"; value: DemoState["avpu"] }
-  | { type: "CONFIRM_PTT"; updateId: string; acceptedProposalIds: string[]; rejectedProposalIds?: string[] }
+  | {
+      type: "CONFIRM_PTT";
+      updateId: string;
+      acceptedProposalIds: string[];
+      rejectedProposalIds?: string[];
+      reviewedProposals?: readonly CardioPttProposal[];
+    }
   | { type: "CONFIRM_ASSESSMENT" }
   | { type: "REQUEST_COORDINATION" }
   | { type: "REQUEST_HOSPITAL"; hospitalId: string }
@@ -295,25 +301,83 @@ function vitalSummary(values: VitalValues) {
   return `BP ${values.bp} mmHg · PR ${values.pr}회/분 · RR ${values.rr}회/분 · SpO₂ ${values.spo2}% · 혈당 ${values.glucose} mg/dL`;
 }
 
+function numericText(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  if (typeof value === "string" && value.trim() && Number.isFinite(Number(value))) return value.trim();
+  return null;
+}
+
+function applyVitalProposals(base: VitalValues, proposals: readonly CardioPttProposal[]): VitalValues {
+  const next = { ...base };
+  let [systolic = "", diastolic = ""] = next.bp.split("/");
+
+  for (const proposal of proposals) {
+    const path = proposal.fieldPath ?? "";
+    const value = numericText(proposal.rawValue);
+    if (path === "vitals.systolicBp" && value) systolic = value;
+    if (path === "vitals.diastolicBp" && value) diastolic = value;
+    if (path === "vitals.pulse" && value) next.pr = value;
+    if (path === "vitals.respiratoryRate" && value) next.rr = value;
+    if (path === "vitals.spo2" && value) next.spo2 = value;
+    if (path === "vitals.temperature" && value) next.temp = value;
+    if (path === "vitals.glucose" && value) next.glucose = value;
+
+    if ((path === "vitals.initial" || path === "vitals.reassessment")
+      && proposal.rawValue && typeof proposal.rawValue === "object" && !Array.isArray(proposal.rawValue)) {
+      const raw = proposal.rawValue as Record<string, unknown>;
+      systolic = numericText(raw.sbp_mmHg) ?? systolic;
+      diastolic = numericText(raw.dbp_mmHg) ?? diastolic;
+      next.pr = numericText(raw.heart_rate_per_min) ?? next.pr;
+      next.rr = numericText(raw.respiratory_rate_per_min) ?? next.rr;
+      next.spo2 = numericText(raw.spo2_percent) ?? next.spo2;
+      next.temp = numericText(raw.temperature_celsius) ?? next.temp;
+      next.glucose = numericText(raw.blood_glucose_mg_dL) ?? next.glucose;
+    }
+  }
+  next.bp = systolic && diastolic ? `${systolic}/${diastolic}` : "";
+  return next;
+}
+
+function hasCompleteVitalSet(values: VitalValues) {
+  return Boolean(values.bp && values.pr && values.rr && values.spo2 && values.temp && values.glucose);
+}
+
 function confirmPtt(
   state: DemoState,
   updateId: string,
   acceptedProposalIds: string[],
   rejectedProposalIds: string[],
   occurredAt: string,
+  reviewedProposals?: readonly CardioPttProposal[],
 ): DemoState {
   const update = CARDIO_DEMO_PTT_UPDATES.find((item) => item.id === updateId);
   if (!update || state.confirmedPttIds.includes(update.id)) return state;
 
-  const accepted = update.proposals.filter((proposal) => acceptedProposalIds.includes(proposal.id));
+  const proposals: readonly CardioPttProposal[] = reviewedProposals ?? update.proposals;
+  const accepted = proposals.filter((proposal) => acceptedProposalIds.includes(proposal.id));
   const facts = { ...state.confirmedFacts };
-  for (const proposal of accepted) facts[proposal.id] = { ...proposal, confirmedAt: occurredAt };
+  for (const proposal of accepted) {
+    facts[proposal.id] = {
+      ...proposal,
+      status: proposal.status === "pending_review" ? "confirmed" : proposal.status,
+      confirmedAt: occurredAt,
+    };
+  }
 
   const confirmedPttIds = [...state.confirmedPttIds, update.id];
   const firstThreeConfirmed = CARDIO_DEMO_PTT_UPDATES.slice(0, 3).every((item) => confirmedPttIds.includes(item.id));
-  const isInitialVitals = update.topic === "vitals_ecg_intervention" && accepted.some((item) => item.id === "U03-vitals");
-  const isReassessment = update.topic === "reassessment_change" && accepted.some((item) => item.id === "U04-vitals");
-  const reassessmentVitals = isReassessment ? vitalValuesAt(1) : state.reassessmentVitals;
+  const isInitialVitals = update.topic === "vitals_ecg_intervention"
+    && accepted.some((item) => item.fieldPath?.startsWith("vitals.") || item.id === "U03-vitals");
+  const isReassessment = update.topic === "reassessment_change"
+    && accepted.some((item) => item.fieldPath?.startsWith("vitals.") || item.id === "U04-vitals");
+  const initialVitals = isInitialVitals ? applyVitalProposals(state.vitals, accepted) : state.vitals;
+  const reassessmentVitals = isReassessment
+    ? applyVitalProposals(state.reassessmentVitals ?? emptyVitals(), accepted)
+    : state.reassessmentVitals;
+  const avpuProposal = accepted.find((item) => item.fieldPath === "assessment.avpu" || item.id === "U01-avpu");
+  const nextAvpu = avpuProposal && ["A", "V", "P", "U"].includes(String(avpuProposal.rawValue))
+    ? String(avpuProposal.rawValue) as "A" | "V" | "P" | "U"
+    : state.avpu;
 
   let next: DemoState = {
     ...state,
@@ -323,10 +387,10 @@ function confirmPtt(
     rejectedProposalIds: [...new Set([...state.rejectedProposalIds, ...rejectedProposalIds])],
     voiceConfirmed: firstThreeConfirmed,
     cardioConfirmed: firstThreeConfirmed,
-    vitals: isInitialVitals ? vitalValuesAt(0) : state.vitals,
-    vitalsConfirmed: isInitialVitals || state.vitalsConfirmed,
-    avpu: update.id === "GW-CARDIO-050-U01" && accepted.some((item) => item.id === "U01-avpu") ? "A" : state.avpu,
-    reassessmentSaved: isReassessment || state.reassessmentSaved,
+    vitals: initialVitals,
+    vitalsConfirmed: hasCompleteVitalSet(initialVitals) || state.vitalsConfirmed,
+    avpu: nextAvpu,
+    reassessmentSaved: (isReassessment && reassessmentVitals !== null && hasCompleteVitalSet(reassessmentVitals)) || state.reassessmentSaved,
     reassessmentVitals,
     reassessmentSummary: isReassessment ? "흉통 및 식은땀 일부 호전" : state.reassessmentSummary,
   };
@@ -376,6 +440,7 @@ function reducer(state: DemoState, action: Action): DemoState {
         action.acceptedProposalIds,
         action.rejectedProposalIds ?? [],
         occurredAt,
+        action.reviewedProposals,
       );
     case "CONFIRM_ASSESSMENT":
       if (!state.vitalsConfirmed || state.avpu === "미확인" || state.confirmedPttIds.length < 3) return state;

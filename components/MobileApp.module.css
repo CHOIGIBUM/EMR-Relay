@@ -1404,6 +1404,7 @@
 .reviewActions button { min-height: 45px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid #d5e1e5; border-radius: 10px; background: #fff; font-size: 11px; font-weight: 850; }
 .reviewActions button:disabled { opacity: 0.48; cursor: not-allowed; }
 .reviewActions button:last-child { color: #fff; border-color: #087f8c; background: #087f8c; }
+.spinning { animation: spin 800ms linear infinite; }
 
 .mobileGuide {
   margin-top: 80px;
@@ -1436,6 +1437,7 @@
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(12,153,162,0.35); } 70% { box-shadow: 0 0 0 14px rgba(12,153,162,0); } 100% { box-shadow: 0 0 0 0 rgba(12,153,162,0); } }
 @keyframes blink { 50% { opacity: 0; } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 920px) {
   .mobileStage {

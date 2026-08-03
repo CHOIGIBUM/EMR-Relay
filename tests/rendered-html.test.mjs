@@ -54,9 +54,9 @@ test("serves the local MVP health and hospital fixtures", async () => {
   );
   assert.equal(hospitalResponse.status, 200);
   const directory = await hospitalResponse.json();
-  assert.equal(directory.dataSource, "local-demo-fixture");
+  assert.equal(directory.source, "local_fixture");
   assert.equal(directory.hospitals.length, 3);
-  assert.ok(directory.hospitals.some((hospital) => hospital.id === "H-GW-EMG-016"));
+  assert.ok(directory.hospitals.some((hospital) => hospital.hospital_id === "H-GW-EMG-016"));
 });
 
 test("structures the example field statement through the local agent API", async () => {
@@ -65,6 +65,7 @@ test("structures the example field statement through the local agent API", async
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        case_id: "GW-CARDIO-050",
         updateId: "GW-CARDIO-050-U01",
         transcript: "73세 여성 환자입니다. 주호소는 쥐어짜는 양상의 흉통입니다. 현재 의식은 AVPU A이고 목격자 진술과 함께 확인했습니다.",
       }),
@@ -72,9 +73,9 @@ test("structures the example field statement through the local agent API", async
   );
   assert.equal(response.status, 200);
   const result = await response.json();
-  assert.equal(result.source, "local-structured-demo");
-  assert.equal(result.writesConfirmedState, false);
-  assert.equal(result.update.id, "GW-CARDIO-050-U01");
-  assert.equal(result.update.proposals.length, 3);
-  assert.ok(result.update.proposals.every((proposal) => proposal.status === "confirmed"));
+  assert.equal(result.pending_review, true);
+  assert.equal(result.update_id, "GW-CARDIO-050-U01");
+  assert.equal(result.proposed_updates.length, 3);
+  assert.ok(result.proposed_updates.every((proposal) => proposal.review_state === "pending_review"));
+  assert.ok(result.proposed_updates.every((proposal) => proposal.fact_status !== "confirmed"));
 });

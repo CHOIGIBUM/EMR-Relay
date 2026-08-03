@@ -128,6 +128,9 @@ export type CardioPttProposal = {
   status: FactReviewStatus;
   sourceLabel: string;
   evidence: string;
+  fieldPath?: string;
+  rawValue?: unknown;
+  unit?: string | null;
 };
 
 export type CardioPttUpdate = {

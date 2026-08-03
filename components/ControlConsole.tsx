@@ -22,10 +22,10 @@ import {
   ShieldCheck,
   UserRound,
 } from "lucide-react";
+import { CARDIO_DEMO_DISPATCH } from "@/lib/cardioDemoData";
+import { getHospitalDirectory } from "@/lib/emsApi";
 import { HOSPITALS, SCENARIO, STAGE_LABEL, stageAtLeast, useDemo, type HospitalOption } from "./DemoContext";
 import styles from "./ControlConsole.module.css";
-
-const API_BASE = (process.env.NEXT_PUBLIC_EMS_API_BASE ?? "/api/local").replace(/\/$/, "");
 
 function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?: "slate" | "teal" | "amber" | "green" | "red" }) {
   return <span className={styles.badge} data-tone={tone}>{children}</span>;
@@ -45,16 +45,22 @@ export default function ControlConsole() {
     if (!hasRequest) return;
 
     const controller = new AbortController();
-    fetch(`${API_BASE}/hospitals?lat=37.748&lng=127.849&case=${SCENARIO.id}`, {
-      signal: controller.signal,
-      headers: { accept: "application/json" },
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`병원정보 조회 실패: ${response.status}`);
-        return response.json() as Promise<{ hospitals?: HospitalOption[] }>;
-      })
-      .then((payload) => {
-        if (payload.hospitals?.length) setHospitalOptions(payload.hospitals);
+    getHospitalDirectory({
+      caseId: SCENARIO.sourceCaseId,
+      latitude: CARDIO_DEMO_DISPATCH.location.latitude,
+      longitude: CARDIO_DEMO_DISPATCH.location.longitude,
+    }, { signal: controller.signal })
+      .then(({ data }) => {
+        const options: HospitalOption[] = data.hospitals.map((hospital) => ({
+          id: hospital.hospital_id,
+          name: hospital.display_name,
+          type: hospital.care_level,
+          distance: `${hospital.distance_km.toFixed(1)} km`,
+          eta: `${hospital.eta_minutes}분`,
+          location: hospital.region_label,
+          reference: hospital.reference_capabilities,
+        }));
+        setHospitalOptions(options);
         setDirectoryState("ready");
       })
       .catch((error: unknown) => {

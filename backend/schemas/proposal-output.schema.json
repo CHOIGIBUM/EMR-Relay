@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ems-relay.local/schemas/proposal-output.schema.json",
+  "title": "EMS Relay Bedrock structured proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "summary", "changes", "flags"],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "changes": {
+      "type": "array",
+      "maxItems": 30,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "value", "certainty", "sourceText"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "enum": [
+              "patient.age", "patient.sex", "symptoms.chiefComplaint", "symptoms.onsetAt",
+              "symptoms.chestPain", "symptoms.associated", "consciousness.avpu",
+              "vitals.systolicBp", "vitals.diastolicBp", "vitals.pulse",
+              "vitals.respiratoryRate", "vitals.spo2", "vitals.temperature", "vitals.glucose",
+              "history.conditions", "history.medications", "history.allergies", "assessment.ecg",
+              "assessment.fieldImpression", "treatment.oxygen", "treatment.medications",
+              "treatment.procedures", "transport.reassessment"
+            ]
+          },
+          "value": {
+            "anyOf": [
+              { "type": "string", "maxLength": 500 }, { "type": "number" },
+              { "type": "boolean" }, { "type": "null" },
+              { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 100 } }
+            ]
+          },
+          "unit": { "type": "string", "maxLength": 30 },
+          "observedAt": { "type": "string", "format": "date-time" },
+          "certainty": { "type": "string", "enum": ["clear", "needs_confirmation", "unknown"] },
+          "sourceText": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "note": { "type": "string", "maxLength": 300 }
+        }
+      }
+    },
+    "flags": {
+      "type": "array",
+      "maxItems": 20,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+          "field": { "type": "string" },
+          "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+        }
+      }
+    }
+  }
+}

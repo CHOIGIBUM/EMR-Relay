@@ -1,19 +1,4 @@
-export type LocalHospitalCandidate = {
-  id: string;
-  name: string;
-  type: string;
-  distance: string;
-  eta: string;
-  location: string;
-  reference: string[];
-};
-
-export type LocalHospitalsResponse = {
-  hospitals: LocalHospitalCandidate[];
-  dataSource: "local-demo-fixture";
-  referenceTimestamp: string;
-};
-
+/** Health-check contract for the explicit local development backend. */
 export type LocalServiceState = {
   status: "available";
   provider: string;

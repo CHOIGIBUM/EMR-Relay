@@ -7,11 +7,11 @@ export async function GET(): Promise<Response> {
     services: {
       agent: {
         status: "available",
-        provider: "local-structured-voice-fixture",
+        provider: "scripted-proposal-contract",
       },
       hospitals: {
         status: "available",
-        provider: "local-demo-fixture",
+        provider: "static-reference-contract",
       },
       persistence: {
         status: "available",

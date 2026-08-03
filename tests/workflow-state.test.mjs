@@ -159,14 +159,15 @@ test("agent API does not invent values for an uninformative utterance", { skip: 
     new Request("http://localhost/api/local/agent", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ updateId: "GW-CARDIO-050-U01", transcript: "환자 상태를 확인하고 있습니다." }),
+      body: JSON.stringify({ case_id: "GW-CARDIO-050", updateId: "GW-CARDIO-050-U01", transcript: "환자 상태를 확인하고 있습니다." }),
     }),
   );
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 422);
 
   const payload = await response.json();
   const serialized = JSON.stringify(payload);
   assert.doesNotMatch(serialized, /demo[-_ ]?fallback/i);
+  assert.equal(payload.error, "unsupported_local_transcript");
 
   const result = payload?.data ?? payload;
   const structured = result?.structured;
@@ -182,9 +183,9 @@ test("agent API does not invent values for an uninformative utterance", { skip: 
     }
   }
 
-  const proposals = Array.isArray(result?.proposals) ? result.proposals : [];
+  const proposals = Array.isArray(result?.proposed_updates) ? result.proposed_updates : [];
   assert.ok(
-    proposals.every((proposal) => !/^(?:confirmed|확정)$/i.test(String(proposal?.status ?? ""))),
+    proposals.every((proposal) => !/^(?:confirmed|확정)$/i.test(String(proposal?.fact_status ?? proposal?.status ?? ""))),
     "Agent 응답이 사람 확인 없이 confirmed 상태를 반환하면 안 됩니다.",
   );
 });
