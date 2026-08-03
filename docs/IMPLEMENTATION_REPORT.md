@@ -215,6 +215,7 @@ Lambda는 Node.js 22, arm64, 512 MB, 30초로 구성했다. DynamoDB는 on-deman
 | 프론트 소스 테스트 | 18/18 통과 |
 | 프론트 TypeScript | 통과 |
 | 프론트 ESLint | 통과 |
+| 프론트 의존성 보안 검사 | `npm audit` 취약점 0건 |
 | 백엔드 테스트 | 24/24 통과 |
 | SAM template lint | 통과 |
 | AgentCore 테스트 | 14/14 통과 |
