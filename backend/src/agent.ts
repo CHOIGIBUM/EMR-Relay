@@ -172,7 +172,6 @@ Extract only explicitly supported information from the Korean transcript. Compar
     inferenceConfig: {
       maxTokens: 1_600,
       temperature: 0.3,
-      topP: 0.9,
     },
     toolConfig: {
       tools: [{

@@ -2,6 +2,8 @@
 param(
   [string]$StackName = "ems-relay-backend",
   [string]$Region = "ap-northeast-2",
+  [string]$Profile = "",
+  [string]$ExpectedAccountId = "",
   [Parameter(Mandatory = $true)]
   [string]$ModelId,
   [string]$CorsOrigins = "http://localhost:3000",
@@ -17,6 +19,22 @@ $env:__SAM_CLI_APP_DIR = $SamCliConfigDir
 
 Push-Location $BackendRoot
 try {
+  if ($ExpectedAccountId) {
+    $IdentityArguments = @(
+      "sts", "get-caller-identity",
+      "--query", "Account",
+      "--output", "text"
+    )
+    if ($Profile) {
+      $IdentityArguments += @("--profile", $Profile)
+    }
+    $ActualAccountId = (aws @IdentityArguments).Trim()
+    if ($LASTEXITCODE -ne 0) { throw "AWS identity verification failed." }
+    if ($ActualAccountId -ne $ExpectedAccountId) {
+      throw "AWS account mismatch. Expected $ExpectedAccountId but resolved $ActualAccountId."
+    }
+  }
+
   sam validate --lint --template-file template.yaml
   if ($LASTEXITCODE -ne 0) { throw "SAM template validation failed." }
   sam build --template-file template.yaml
@@ -39,6 +57,9 @@ try {
   }
   else {
     $DeployArguments += "--resolve-s3"
+  }
+  if ($Profile) {
+    $DeployArguments += @("--profile", $Profile)
   }
   sam @DeployArguments
   if ($LASTEXITCODE -ne 0) { throw "SAM deployment failed." }

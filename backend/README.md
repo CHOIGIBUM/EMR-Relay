@@ -71,12 +71,14 @@ npm run sam:build
 .\scripts\deploy.ps1 `
   -StackName ems-relay-backend `
   -Region ap-northeast-2 `
+  -Profile ems-relay-cgb `
+  -ExpectedAccountId "462993243992" `
   -ModelId "global.anthropic.claude-haiku-4-5-20251001-v1:0" `
   -CorsOrigins "http://localhost:3000,https://your-private-site.example" `
   -ArtifactBucket "<비공개 SAM 배포 버킷>"
 ```
 
-배포 스크립트는 `sam validate → sam build → sam deploy` 순서로 실행합니다. 최초 배포 후 CloudFormation 출력의 `ApiUrl`을 프론트엔드 `NEXT_PUBLIC_EMS_API_BASE`에 설정합니다.
+배포 스크립트는 대상 계정 ID를 먼저 검증한 뒤 `sam validate → sam build → sam deploy` 순서로 실행합니다. 최초 배포 후 CloudFormation 출력의 `ApiUrl`을 프론트엔드 `NEXT_PUBLIC_EMS_API_BASE`에 설정합니다.
 
 > `CorsOrigins`에는 로컬 개발 주소와 실제 프론트엔드 주소만 쉼표로 구분해 지정합니다. 와일드카드는 사용하지 않습니다.
 

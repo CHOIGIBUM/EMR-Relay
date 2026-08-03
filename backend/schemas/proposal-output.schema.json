@@ -7,10 +7,9 @@
   "required": ["schemaVersion", "summary", "changes", "flags"],
   "properties": {
     "schemaVersion": { "const": "1.0" },
-    "summary": { "type": "string", "minLength": 1, "maxLength": 500 },
+    "summary": { "type": "string" },
     "changes": {
       "type": "array",
-      "maxItems": 30,
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -30,31 +29,30 @@
           },
           "value": {
             "anyOf": [
-              { "type": "string", "maxLength": 500 }, { "type": "number" },
+              { "type": "string" }, { "type": "number" },
               { "type": "boolean" }, { "type": "null" },
-              { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 100 } }
+              { "type": "array", "items": { "type": "string" } }
             ]
           },
-          "unit": { "type": "string", "maxLength": 30 },
+          "unit": { "type": "string" },
           "observedAt": { "type": "string", "format": "date-time" },
           "certainty": { "type": "string", "enum": ["clear", "needs_confirmation", "unknown"] },
-          "sourceText": { "type": "string", "minLength": 1, "maxLength": 300 },
-          "note": { "type": "string", "maxLength": 300 }
+          "sourceText": { "type": "string" },
+          "note": { "type": "string" }
         }
       }
     },
     "flags": {
       "type": "array",
-      "maxItems": 20,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["code", "severity", "message"],
         "properties": {
-          "code": { "type": "string", "minLength": 1, "maxLength": 60 },
+          "code": { "type": "string" },
           "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
           "field": { "type": "string" },
-          "message": { "type": "string", "minLength": 1, "maxLength": 300 }
+          "message": { "type": "string" }
         }
       }
     }

@@ -23,10 +23,9 @@ export const PROPOSAL_OUTPUT_SCHEMA = {
   required: ["schemaVersion", "summary", "changes", "flags"],
   properties: {
     schemaVersion: { type: "string", const: "1.0" },
-    summary: { type: "string", minLength: 1, maxLength: 500 },
+    summary: { type: "string" },
     changes: {
       type: "array",
-      maxItems: 30,
       items: {
         type: "object",
         additionalProperties: false,
@@ -35,33 +34,32 @@ export const PROPOSAL_OUTPUT_SCHEMA = {
           path: { type: "string", enum: [...ALLOWED_FACT_PATHS] },
           value: {
             anyOf: [
-              { type: "string", maxLength: 500 },
+              { type: "string" },
               { type: "number" },
               { type: "boolean" },
               { type: "null" },
-              { type: "array", maxItems: 20, items: { type: "string", maxLength: 100 } },
+              { type: "array", items: { type: "string" } },
             ],
           },
-          unit: { type: "string", maxLength: 30 },
-          observedAt: { type: "string", maxLength: 40 },
+          unit: { type: "string" },
+          observedAt: { type: "string", format: "date-time" },
           certainty: { type: "string", enum: ["clear", "needs_confirmation", "unknown"] },
-          sourceText: { type: "string", minLength: 1, maxLength: 300 },
-          note: { type: "string", maxLength: 300 },
+          sourceText: { type: "string" },
+          note: { type: "string" },
         },
       },
     },
     flags: {
       type: "array",
-      maxItems: 20,
       items: {
         type: "object",
         additionalProperties: false,
         required: ["code", "severity", "message"],
         properties: {
-          code: { type: "string", minLength: 1, maxLength: 60 },
+          code: { type: "string" },
           severity: { type: "string", enum: ["info", "warning", "critical"] },
           field: { type: "string", enum: [...ALLOWED_FACT_PATHS] },
-          message: { type: "string", minLength: 1, maxLength: 300 },
+          message: { type: "string" },
         },
       },
     },
