@@ -20,6 +20,7 @@ import MobileApp from "./MobileApp";
 import ControlConsole from "./ControlConsole";
 import HospitalConsole from "./HospitalConsole";
 import ReportConsole from "./ReportConsole";
+import { EMS_API_CONFIG } from "@/lib/emsApi";
 import styles from "./EMSRelayApp.module.css";
 
 type View = "mobile" | "control" | "hospital" | "report" | "workflow";
@@ -261,7 +262,9 @@ function AppShell() {
         </nav>
 
         <div className={styles.topActions}>
-          <span className={styles.liveState}><i /> 로컬 사건 연결</span>
+          <span className={styles.liveState}>
+            <i /> {EMS_API_CONFIG.mode === "remote" ? "AWS API 연결" : "로컬 시연 연결"}
+          </span>
           <button onClick={reset} aria-label="시연 초기화"><RefreshCcw size={17} /><span>초기화</span></button>
         </div>
       </header>
