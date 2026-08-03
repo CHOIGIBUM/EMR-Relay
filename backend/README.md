@@ -70,7 +70,7 @@ npm run sam:build
 ```powershell
 .\scripts\deploy.ps1 `
   -StackName ems-relay-backend `
-  -Region ap-northeast-2 `
+  -Region us-west-2 `
   -Profile ems-relay-cgb `
   -ExpectedAccountId "462993243992" `
   -ModelId "global.anthropic.claude-haiku-4-5-20251001-v1:0" `

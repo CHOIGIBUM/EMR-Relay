@@ -5,7 +5,11 @@ import {
   type ConverseCommandInput,
   type ConverseCommandOutput,
 } from "@aws-sdk/client-bedrock-runtime";
-import { PROPOSAL_OUTPUT_SCHEMA, validateAgentModelOutput } from "./schemas.js";
+import {
+  normalizeAgentModelCandidate,
+  PROPOSAL_OUTPUT_SCHEMA,
+  validateAgentModelOutput,
+} from "./schemas.js";
 import type {
   AgentModelOutput,
   AgentProposal,
@@ -14,7 +18,7 @@ import type {
 } from "./types.js";
 
 const TOOL_NAME = "submit_patient_update";
-const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || "ap-northeast-2";
+const BEDROCK_REGION = process.env.BEDROCK_REGION || process.env.AWS_REGION || "us-west-2";
 const BEDROCK_MODEL_ID = process.env.BEDROCK_MODEL_ID || "global.anthropic.claude-haiku-4-5-20251001-v1:0";
 const bedrock = new BedrockRuntimeClient({ region: BEDROCK_REGION });
 
@@ -73,6 +77,7 @@ Your sole responsibility is to convert a Korean paramedic voice update into stru
 <output_policy>
 - Call submit_patient_update exactly once and produce no additional prose.
 - Return only fields accepted by the tool schema.
+- For a measured number, place the bare JSON number in value and place its unit in the sibling unit field. Never wrap value in an object.
 - It is valid to return an empty changes array when no reliable structured information is present.
 </output_policy>`;
 
@@ -187,7 +192,7 @@ Extract only explicitly supported information from the Korean transcript. Compar
   };
 
   const response = await bedrock.send(new ConverseCommand(commandInput));
-  const validation = validateAgentModelOutput(extractCandidate(response));
+  const validation = validateAgentModelOutput(normalizeAgentModelCandidate(extractCandidate(response)));
   if (!validation.ok) throw new AgentOutputError("모델 출력이 환자정보 변경안 스키마와 일치하지 않습니다.", validation.issues);
 
   return {

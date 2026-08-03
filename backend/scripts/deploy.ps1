@@ -1,12 +1,14 @@
 [CmdletBinding()]
 param(
   [string]$StackName = "ems-relay-backend",
-  [string]$Region = "ap-northeast-2",
+  [string]$Region = "us-west-2",
   [string]$Profile = "ems-relay-cgb",
   [string]$ExpectedAccountId = "462993243992",
   [Parameter(Mandatory = $true)]
   [string]$ModelId,
   [string]$CorsOrigins = "http://localhost:3000",
+  [ValidateSet("ems-relay/external-api-keys")]
+  [string]$ExternalApiSecretName = "ems-relay/external-api-keys",
   [string]$ArtifactBucket = ""
 )
 
@@ -36,6 +38,28 @@ try {
     throw "AWS account mismatch. Expected $ExpectedAccountId but resolved $ActualAccountId."
   }
 
+  $SecretArguments = @(
+    "secretsmanager", "describe-secret",
+    "--secret-id", $ExternalApiSecretName,
+    "--region", $Region,
+    "--query", "{ARN:ARN,KmsKeyId:KmsKeyId}",
+    "--output", "json"
+  )
+  if ($Profile) {
+    $SecretArguments += @("--profile", $Profile)
+  }
+  $SecretMetadata = aws @SecretArguments | ConvertFrom-Json
+  if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$SecretMetadata.ARN)) {
+    throw "External API secret metadata verification failed."
+  }
+  $ExpectedSecretArnPrefix = "arn:aws:secretsmanager:${Region}:${ExpectedAccountId}:secret:${ExternalApiSecretName}-"
+  if (-not ([string]$SecretMetadata.ARN).StartsWith($ExpectedSecretArnPrefix)) {
+    throw "External API secret belongs to an unexpected account, region, or name."
+  }
+  if (-not [string]::IsNullOrWhiteSpace([string]$SecretMetadata.KmsKeyId)) {
+    throw "This deployment expects the AWS managed Secrets Manager encryption key."
+  }
+
   sam validate --lint --template-file template.yaml
   if ($LASTEXITCODE -ne 0) { throw "SAM template validation failed." }
   sam build --template-file template.yaml
@@ -51,7 +75,8 @@ try {
     "--parameter-overrides",
     "BedrockModelId=$ModelId",
     "BedrockRegion=$Region",
-    "CorsOrigins=$CorsOrigins"
+    "CorsOrigins=$CorsOrigins",
+    "ExternalApiSecretName=$ExternalApiSecretName"
   )
   if ($ArtifactBucket) {
     $DeployArguments += @("--s3-bucket", $ArtifactBucket)

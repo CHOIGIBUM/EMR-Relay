@@ -9,12 +9,18 @@ Parameters:
     Description: Bedrock model ID or inference profile ID available to the account
   BedrockRegion:
     Type: String
-    Default: ap-northeast-2
+    Default: us-west-2
     Description: AWS Region used by the Bedrock Runtime client
   CorsOrigins:
     Type: CommaDelimitedList
     Default: "http://localhost:3000"
     Description: Comma-separated frontend origins allowed by the HTTP API.
+  ExternalApiSecretName:
+    Type: String
+    Default: ems-relay/external-api-keys
+    AllowedValues:
+      - ems-relay/external-api-keys
+    Description: Secrets Manager secret containing external API credentials, encrypted with the AWS managed key
 
 Globals:
   Function:
@@ -29,6 +35,7 @@ Globals:
         TABLE_NAME: !Ref CaseTable
         BEDROCK_MODEL_ID: !Ref BedrockModelId
         BEDROCK_REGION: !Ref BedrockRegion
+        EXTERNAL_API_SECRET_NAME: !Ref ExternalApiSecretName
         NODE_OPTIONS: --enable-source-maps
 
 Resources:
@@ -66,6 +73,11 @@ Resources:
               Action:
                 - bedrock:InvokeModel
               Resource: "*"
+            - Sid: ReadExternalApiSecret
+              Effect: Allow
+              Action:
+                - secretsmanager:GetSecretValue
+              Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ExternalApiSecretName}-*
       Events:
         Health:
           Type: HttpApi

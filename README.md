@@ -65,7 +65,7 @@ node --test tests/workflow-state.test.mjs
 ```
 
 AWS API가 준비되면 `.env.local`에서 `NEXT_PUBLIC_EMS_API_MODE=remote`와
-`NEXT_PUBLIC_EMS_BACKEND_URL=https://…execute-api.ap-northeast-2.amazonaws.com`을 설정합니다.
+`NEXT_PUBLIC_EMS_BACKEND_URL=https://…execute-api.us-west-2.amazonaws.com`을 설정합니다.
 원격 장애를 로컬 데이터로 숨기지 않도록 `NEXT_PUBLIC_EMS_ALLOW_LOCAL_FALLBACK`의 기본값은 `false`입니다.
 
 - 음성 변경안: `POST /cases/{caseId}/voice-updates/proposals`

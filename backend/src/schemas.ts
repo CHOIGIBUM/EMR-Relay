@@ -76,6 +76,34 @@ function isProposalValue(value: unknown): value is ProposalValue {
   return Array.isArray(value) && value.length <= 20 && value.every((entry) => typeof entry === "string");
 }
 
+/**
+ * Some tool-capable models occasionally wrap a scalar proposal as
+ * `{ value: <scalar>, unit?: <string> }` even though the schema defines
+ * `value` and `unit` as sibling fields. Flatten only that exact syntactic
+ * shape; all clinical paths, values and units still pass the normal strict
+ * validator and remain pending until HITL confirmation.
+ */
+export function normalizeAgentModelCandidate(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.changes)) return value;
+
+  let changed = false;
+  const changes = value.changes.map((entry) => {
+    if (!isRecord(entry) || !isRecord(entry.value)) return entry;
+
+    const wrapper = entry.value;
+    const keys = Object.keys(wrapper);
+    if (!keys.every((key) => key === "value" || key === "unit") || !isProposalValue(wrapper.value)) return entry;
+    if (wrapper.unit !== undefined && typeof wrapper.unit !== "string") return entry;
+
+    changed = true;
+    const normalized: Record<string, unknown> = { ...entry, value: wrapper.value };
+    if (normalized.unit === undefined && typeof wrapper.unit === "string") normalized.unit = wrapper.unit;
+    return normalized;
+  });
+
+  return changed ? { ...value, changes } : value;
+}
+
 function validOptionalIsoDate(value: unknown) {
   return value === undefined || (typeof value === "string" && ISO_DATE_PATTERN.test(value));
 }

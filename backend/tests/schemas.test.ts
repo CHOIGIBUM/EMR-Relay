@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  normalizeAgentModelCandidate,
   validateAgentModelOutput,
   validateAgentRequest,
   validateConfirmRequest,
@@ -75,6 +76,44 @@ test("rejects a model-proposed path outside the allowlist", () => {
     }],
     flags: [],
   });
+
+  assert.equal(result.ok, false);
+});
+
+test("normalizes a tool-model scalar wrapper without changing its clinical value", () => {
+  const candidate = normalizeAgentModelCandidate({
+    schemaVersion: "1.0",
+    summary: "활력징후 변경안을 정리했습니다.",
+    changes: [{
+      path: "vitals.systolicBp",
+      value: { value: 168, unit: "mmHg" },
+      certainty: "clear",
+      sourceText: "혈압 168에 96",
+    }],
+    flags: [],
+  });
+  const result = validateAgentModelOutput(candidate);
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.value.changes[0]?.value, 168);
+    assert.equal(result.value.changes[0]?.unit, "mmHg");
+  }
+});
+
+test("does not flatten an unrecognized object value", () => {
+  const candidate = normalizeAgentModelCandidate({
+    schemaVersion: "1.0",
+    summary: "잘못된 중첩 값입니다.",
+    changes: [{
+      path: "vitals.systolicBp",
+      value: { systolic: 168, diastolic: 96 },
+      certainty: "clear",
+      sourceText: "혈압 168에 96",
+    }],
+    flags: [],
+  });
+  const result = validateAgentModelOutput(candidate);
 
   assert.equal(result.ok, false);
 });
