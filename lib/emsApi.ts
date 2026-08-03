@@ -18,6 +18,7 @@ import type {
 type RequestOptions = {
   signal?: AbortSignal;
   accessToken?: string;
+  forceLocal?: boolean;
 };
 
 type ApiMode = "local" | "remote";
@@ -159,6 +160,7 @@ async function requestWithPolicy<T>({
     return { data: parse(payload), transport, usedLocalFallback: false };
   };
 
+  if (options?.forceLocal) return request("local");
   if (mode === "local") return request("local");
   try {
     return await request("remote");

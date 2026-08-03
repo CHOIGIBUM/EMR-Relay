@@ -212,7 +212,7 @@ Lambda는 Node.js 22, arm64, 512 MB, 30초로 구성했다. DynamoDB는 on-deman
 
 | 영역 | 결과 |
 |---|---|
-| 프론트 소스 테스트 | 18/18 통과 |
+| 프론트 소스 테스트 | 20/20 통과 |
 | 프론트 TypeScript | 통과 |
 | 프론트 ESLint | 통과 |
 | 프론트 의존성 보안 검사 | `npm audit` 취약점 0건 |
@@ -230,12 +230,13 @@ Lambda는 Node.js 22, arm64, 512 MB, 30초로 구성했다. DynamoDB는 on-deman
 - AgentCore 실호출: `PENDING_REVIEW`, human review 필수, authoritative false, 3 agent, 18 tool calls, PHI trace false.
 - 병원 참고정보 실호출: 속초의료원은 `NMC+HIRA+KAKAO`, 약 1.8 km·6분으로 반환됐고 수용 상태는 `not_provided`였다.
 - WebSocket probe: TLS `wss` 연결 성공, 일회용 ticket 소비 성공.
+- 실제 브라우저 Cognito PKCE 로그인: 구급대원·상황실·병원 3개 역할 계정 모두 성공. 구급대원은 `GW-CARDIO-051`과 `연결됨` 상태를 확인했고, 상황실은 진행 사건 0건, 문의받지 않은 병원은 경고 대신 `수용 요청 대기` 상태를 표시했다.
 - 운영 사건 `GW-CARDIO-051`: `ASSIGNED v1`, 배정 이벤트만 존재, 확정 임상 사실·문의·이송지 없음. 상황실과 배정 구급대원 조회는 200, 문의받지 않은 병원은 403.
 - 보관용 E2E 사건 `GW-CARDIO-050`: 전체 lifecycle `COMPLETE v18`, 병원 회신, 최초·재평가 확정, 보고서 `FINALIZED v3`, FHIR outbox `PUBLISHED`, `FHIR_PUBLISHED` 이벤트 확인.
 - S3: 위 사건의 최종 HTML·JSON 2개 객체 확인.
 - HealthLake: 최종 보고서의 FHIR transaction 발행 완료, datastore `ACTIVE`.
 
-Cloud seed는 배포된 Lambda에 API Gateway 형식의 역할 claim을 넣어 workflow와 권한 분기를 검증한다. 따라서 Cognito Hosted UI의 실제 브라우저 로그인 확인을 대체하지 않는다. 또한 자동 E2E는 실제 마이크 장치를 재현하지 않는다. 배포 사이트의 Chrome/Edge에서 로그인하고 마이크 권한을 허용한 뒤 PTT 시작·중앙 실시간 문장·버튼 해제 후 최종 문장·검토 화면까지 마지막 수동 인수 테스트를 해야 한다.
+Cloud seed는 배포된 Lambda에 API Gateway 형식의 역할 claim을 넣어 workflow와 권한 분기를 검증하고, 위 브라우저 검증은 실제 Cognito Hosted UI 인증을 별도로 확인했다. 다만 자동 E2E와 원격 브라우저는 사용자의 실제 마이크 장치를 재현하지 못하므로, 배포 사이트의 Chrome/Edge에서 마이크 권한을 허용한 뒤 PTT 시작·중앙 실시간 문장·버튼 해제 후 최종 문장·검토 화면까지 물리 장치 인수 테스트를 한 번 수행해야 한다.
 
 ## 8. 브라우저 지도 설정
 

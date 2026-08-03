@@ -33,7 +33,7 @@ function Badge({ children, tone = "slate" }: { children: React.ReactNode; tone?:
 }
 
 export default function HospitalConsole() {
-  const { state, dispatch, selectedHospital, scenario: SCENARIO } = useDemo();
+  const { state, dispatch, selectedHospital, scenario: SCENARIO, sync } = useDemo();
   const [modal, setModal] = useState<Modal>(null);
   const [infoFields, setInfoFields] = useState<string[]>(["재평가 활력징후", "항혈소판제·항응고제 복용"]);
   const [declineReason, setDeclineReason] = useState("현재 진료 여력 부족");
@@ -84,7 +84,7 @@ export default function HospitalConsole() {
           <button className={state.stage === "complete" ? styles.navActive : ""}>인수 완료</button>
         </nav>
         <div className={styles.staff}>
-          <span className={styles.live}><i /> 실시간 연결</span>
+          <span className={styles.live}><i /> {sync.waitingForRequest ? "요청 대기" : sync.connection === "connected" ? "실시간 연결" : "연결 확인 중"}</span>
           <button aria-label="알림"><Bell size={18} />{state.stage === "hospital-requested" || state.stage === "info-sent" || state.stage === "handoff-sent" ? <i /> : null}</button>
           <div><span><UserRound size={17} /></span><p><strong>이○○</strong><small>응급실 수용 담당</small></p></div>
         </div>

@@ -254,3 +254,29 @@ test("operational workspaces start empty and never merge the cardiovascular demo
   assert.match(workspace, /NEXT_PUBLIC_EMS_DEFAULT_CASE_ID\?\.trim\(\)\s*\|\|\s*"UNASSIGNED"/);
   assert.match(report, /if\s*\(sync\.mode\s*===\s*"demo"\)\s*return\s*DEMO_UNKNOWN_ITEMS/);
 });
+
+test("the explicit demo workflow always uses the local voice proposal endpoint", () => {
+  const source = (wanted) => [...sources].find(([file]) => file.replaceAll("\\", "/") === wanted)?.[1] ?? "";
+  const api = source("lib/emsApi.ts");
+  const mobile = source("components/MobileApp.tsx");
+
+  assert.match(api, /if\s*\(options\?\.forceLocal\)\s*return\s*request\("local"\);/);
+  assert.match(mobile, /forceLocal:\s*!operational/);
+  assert.match(api, /localPath:\s*"agent"/);
+});
+
+test("a hospital without an assigned request sees an idle queue instead of an access error", () => {
+  const source = (wanted) => [...sources].find(([file]) => file.replaceAll("\\", "/") === wanted)?.[1] ?? "";
+  const provider = source("components/DemoContext.tsx");
+  const workspace = source("components/OperationalWorkspace.tsx");
+  const hospital = source("components/HospitalConsole.tsx");
+
+  assert.match(workspace, /operationalRole=\{operationalRole\}/);
+  assert.match(provider, /const\s+quietForbiddenAsWaiting\s*=\s*operationalRole\s*===\s*"hospital"/);
+  assert.match(provider, /quietForbiddenAsWaiting\s*&&\s*error\s+instanceof\s+EmsApiError\s*&&\s*error\.status\s*===\s*403/);
+  assert.match(provider, /setWaitingForRequest\(true\);\s*setSyncError\(null\);/);
+  assert.match(provider, /setConnection\("error"\);\s*setWaitingForRequest\(false\);\s*setSyncError\(error\s+instanceof\s+Error/);
+  assert.match(provider, /if\s*\(!remoteEnabled\s*\|\|\s*operationalRole\s*!==\s*"paramedic"\)\s*return;/);
+  assert.match(provider, /nextConnection\s*===\s*"connected"\)\s*void\s+refresh\(\)/);
+  assert.match(hospital, /sync\.waitingForRequest\s*\?\s*"요청 대기"/);
+});

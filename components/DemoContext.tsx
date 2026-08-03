@@ -31,8 +31,8 @@ import {
   submitCaseCommand,
   reviewReport,
 } from "@/lib/operationalApi";
-import type { OperationalCaseSnapshot, OperationalReport } from "@/lib/operationalTypes";
-import { getHospitalDirectory } from "@/lib/emsApi";
+import type { OperationalCaseSnapshot, OperationalReport, OperationalRole } from "@/lib/operationalTypes";
+import { EmsApiError, getHospitalDirectory } from "@/lib/emsApi";
 import { currentAccessToken } from "@/lib/cognitoAuth";
 
 export type DemoStage =
@@ -796,6 +796,7 @@ type DemoContextValue = {
     connection: "local" | "loading" | "connecting" | "connected" | "reconnecting" | "disconnected" | "error";
     pending: boolean;
     error: string | null;
+    waitingForRequest: boolean;
     version: number;
     confirmedVersion: number;
     report?: OperationalReport;
@@ -1083,7 +1084,17 @@ function commandForAction(action: Action, state: DemoState, hospitals: HospitalO
   }
 }
 
-export function DemoProvider({ children, operational = false, caseId = SCENARIO.sourceCaseId }: { children: ReactNode; operational?: boolean; caseId?: string }) {
+export function DemoProvider({
+  children,
+  operational = false,
+  caseId = SCENARIO.sourceCaseId,
+  operationalRole,
+}: {
+  children: ReactNode;
+  operational?: boolean;
+  caseId?: string;
+  operationalRole?: OperationalRole;
+}) {
   const [managed, managedDispatch] = useReducer(managedReducer, {
     value: operational ? operationalInitialState() : initialState(),
     origin: "initial",
@@ -1102,9 +1113,11 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
   );
   const [pending, setPending] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [waitingForRequest, setWaitingForRequest] = useState(false);
   const state = managed.value;
 
   const remoteEnabled = operational && OPERATIONAL_CONFIG.enabled;
+  const quietForbiddenAsWaiting = operationalRole === "hospital";
 
   const refresh = useCallback(async () => {
     if (!remoteEnabled) return;
@@ -1116,12 +1129,20 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
       setRemoteReport(snapshot.report);
       setScenario((current) => snapshotToScenario(snapshot, current));
       managedDispatch({ type: "SNAPSHOT", snapshot });
+      setWaitingForRequest(false);
       setSyncError(null);
     } catch (error) {
+      if (quietForbiddenAsWaiting && error instanceof EmsApiError && error.status === 403) {
+        setConnection("disconnected");
+        setWaitingForRequest(true);
+        setSyncError(null);
+        return;
+      }
       setConnection("error");
+      setWaitingForRequest(false);
       setSyncError(error instanceof Error ? error.message : "사건 정보를 불러오지 못했습니다.");
     }
-  }, [caseId, remoteEnabled]);
+  }, [caseId, quietForbiddenAsWaiting, remoteEnabled]);
 
   const dispatch = useCallback<React.Dispatch<Action>>((action) => {
     const normalized = { ...action, occurredAt: formatEventTime() } as Action;
@@ -1223,8 +1244,19 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
           if (message.type === "case.invalidated") void refresh();
           if (message.type === "error") setSyncError(message.message);
         },
-        onState: setConnection,
-        onError: (error) => setSyncError(error.message),
+        onState: (nextConnection) => {
+          setConnection(nextConnection);
+          if (nextConnection === "connected") void refresh();
+        },
+        onError: (error) => {
+          if (quietForbiddenAsWaiting && error instanceof EmsApiError && error.status === 403) {
+            setWaitingForRequest(true);
+            setSyncError(null);
+            return;
+          }
+          setWaitingForRequest(false);
+          setSyncError(error.message);
+        },
       });
       realtimeRef.current = realtime;
       realtime.start();
@@ -1250,10 +1282,10 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
     }
     hydratedRef.current = true;
     return () => channelRef.current?.close();
-  }, [caseId, operational, refresh, remoteEnabled]);
+  }, [caseId, operational, quietForbiddenAsWaiting, refresh, remoteEnabled]);
 
   useEffect(() => {
-    if (!remoteEnabled) return;
+    if (!remoteEnabled || operationalRole !== "paramedic") return;
     const controller = new AbortController();
     let cancelled = false;
     const loadDirectory = async (latitude: number, longitude: number) => {
@@ -1312,7 +1344,7 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
       cancelled = true;
       controller.abort();
     };
-  }, [caseId, remoteEnabled]);
+  }, [caseId, operationalRole, remoteEnabled]);
 
   useEffect(() => {
     if (operational || remoteEnabled || !hydratedRef.current || managed.origin !== "local") return;
@@ -1337,6 +1369,7 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
       connection,
       pending,
       error: syncError,
+      waitingForRequest,
       version,
       confirmedVersion,
       report: remoteReport,
@@ -1344,7 +1377,7 @@ export function DemoProvider({ children, operational = false, caseId = SCENARIO.
     },
     reset: () => dispatch({ type: "RESET" }),
     transition: (stage, actor, title, detail, tone) => dispatch({ type: "TRANSITION", stage, actor, title, detail, tone }),
-  }), [state, dispatch, scenario, hospitals, selectedHospital, progress, operational, remoteEnabled, connection, pending, syncError, refresh, version, confirmedVersion, remoteReport]);
+  }), [state, dispatch, scenario, hospitals, selectedHospital, progress, operational, remoteEnabled, connection, pending, syncError, waitingForRequest, refresh, version, confirmedVersion, remoteReport]);
 
   return <DemoContext.Provider value={value}>{children}</DemoContext.Provider>;
 }

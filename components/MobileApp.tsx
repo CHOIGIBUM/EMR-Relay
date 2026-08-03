@@ -270,7 +270,11 @@ export default function MobileApp({ operational = false }: { operational?: boole
           updateId: pendingUpdate.id,
           transcript,
           locale: "ko-KR",
-        }, { signal: controller.signal, accessToken: accessToken ?? undefined });
+        }, {
+          signal: controller.signal,
+          accessToken: accessToken ?? undefined,
+          forceLocal: !operational,
+        });
         if (controller.signal.aborted || voiceRequestIdRef.current !== requestId) return;
         await sync.refresh();
         const update = voiceProposalToPttUpdate(pendingUpdate, result.data);
