@@ -30,6 +30,14 @@ FactPath = Literal[
     "treatment.oxygen",
     "treatment.medications",
     "treatment.procedures",
+    "reassessment.systolicBp",
+    "reassessment.diastolicBp",
+    "reassessment.pulse",
+    "reassessment.respiratoryRate",
+    "reassessment.spo2",
+    "reassessment.temperature",
+    "reassessment.glucose",
+    "reassessment.avpu",
     "transport.reassessment",
 ]
 
@@ -56,6 +64,14 @@ ALLOWED_FACT_PATHS: tuple[str, ...] = (
     "treatment.oxygen",
     "treatment.medications",
     "treatment.procedures",
+    "reassessment.systolicBp",
+    "reassessment.diastolicBp",
+    "reassessment.pulse",
+    "reassessment.respiratoryRate",
+    "reassessment.spo2",
+    "reassessment.temperature",
+    "reassessment.glucose",
+    "reassessment.avpu",
     "transport.reassessment",
 )
 

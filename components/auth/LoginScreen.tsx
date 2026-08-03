@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { useAuth, roleHome } from "./AuthProvider";
 import type { OperationalRole } from "@/lib/operationalTypes";
+import AuthBrand from "./AuthBrand";
 import styles from "./Auth.module.css";
 
 const developmentRoles: Array<{ role: OperationalRole; label: string }> = [
@@ -20,11 +21,7 @@ export default function LoginScreen() {
   return (
     <main className={styles.page}>
       <section className={styles.card} aria-labelledby="login-title">
-        <div className={styles.brand}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/ems-relay-icon.png" alt="EMS Relay" />
-          <div><strong>EMS Relay</strong><span>응급환자 정보 연계</span></div>
-        </div>
+        <AuthBrand />
         <h1 id="login-title">업무 계정으로 로그인</h1>
         <p>소속과 역할에 맞는 화면으로 연결됩니다. 환자정보는 권한이 확인된 사용자에게만 표시됩니다.</p>
         {auth.status === "loading" ? (

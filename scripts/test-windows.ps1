@@ -21,9 +21,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & subst.exe $drive $parent
 try {
   Set-Location (Join-Path $drive $folder)
-  & npm.cmd run build
-  if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-  & node.exe --test tests\rendered-html.test.mjs
+  & npm.cmd test
   exit $LASTEXITCODE
 }
 finally {

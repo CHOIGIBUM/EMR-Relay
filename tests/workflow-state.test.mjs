@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import {
+  createLocalVoiceProposal,
+  getLocalHospitalDirectory,
+  LocalDemoApiError,
+} from "../lib/localDemoApi.ts";
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const builtWorkerPath = path.join(projectRoot, "dist", "server", "index.js");
 
 function collectSourceFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -36,18 +40,6 @@ function requireSemantic(value, label, patterns) {
   assert.ok(
     matchesAny(value, patterns),
     `${label} 계약을 찾지 못했습니다. 허용되는 의미 표식 중 하나를 UI/상태 소스에 추가하세요.`,
-  );
-}
-
-async function fetchApplication(request) {
-  const workerUrl = pathToFileURL(builtWorkerPath);
-  workerUrl.searchParams.set("workflow-test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
-
-  return worker.fetch(
-    request,
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
   );
 }
 
@@ -158,62 +150,33 @@ test("represents uncertain clinical facts without a concrete demo fallback", () 
   );
 });
 
-test("rendered shell exposes role navigation", { skip: !existsSync(builtWorkerPath) }, async () => {
-  const response = await fetchApplication(
-    new Request("http://localhost/demo/workflow?view=workflow", { headers: { accept: "text/html" } }),
-  );
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-
-  const html = await response.text();
+test("exported Amplify shell exposes role navigation", () => {
+  const html = readFileSync(path.join(projectRoot, "out", "demo", "workflow", "index.html"), "utf8");
   assert.match(html, /EMS Relay/i);
   requireSemantic(html, "렌더된 구급대원 역할", [/구급대/, /paramedic/i]);
   requireSemantic(html, "렌더된 상황실 역할", [/상황실/, /dispatch/i]);
   requireSemantic(html, "렌더된 병원 역할", [/병원/, /hospital/i]);
 });
 
-test("agent API does not invent values for an uninformative utterance", { skip: !existsSync(builtWorkerPath) }, async () => {
-  const response = await fetchApplication(
-    new Request("http://localhost/api/local/agent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ case_id: "GW-CARDIO-050", updateId: "GW-CARDIO-050-U01", transcript: "환자 상태를 확인하고 있습니다." }),
+test("local fixture does not invent values for an uninformative utterance", async () => {
+  await assert.rejects(
+    createLocalVoiceProposal({
+      case_id: "GW-CARDIO-050",
+      updateId: "GW-CARDIO-050-U01",
+      transcript: "환자 상태를 확인하고 있습니다.",
     }),
-  );
-  assert.equal(response.status, 422);
-
-  const payload = await response.json();
-  const serialized = JSON.stringify(payload);
-  assert.doesNotMatch(serialized, /demo[-_ ]?fallback/i);
-  assert.equal(payload.error, "unsupported_local_transcript");
-
-  const result = payload?.data ?? payload;
-  const structured = result?.structured;
-  if (structured && typeof structured === "object") {
-    const unknownValue = (value) => value == null
-      || value === ""
-      || (typeof value === "string" && /^(?:unknown|미상|미확인|not[_ -]?assessed|평가 불가)$/i.test(value.trim()));
-    for (const [field, value] of Object.entries(structured)) {
-      assert.ok(
-        unknownValue(value),
-        `정보가 없는 발화에서 ${field}=${JSON.stringify(value)} 값을 생성했습니다. 값은 null/unknown이어야 합니다.`,
-      );
-    }
-  }
-
-  const proposals = Array.isArray(result?.proposed_updates) ? result.proposed_updates : [];
-  assert.ok(
-    proposals.every((proposal) => !/^(?:confirmed|확정)$/i.test(String(proposal?.fact_status ?? proposal?.status ?? ""))),
-    "Agent 응답이 사람 확인 없이 confirmed 상태를 반환하면 안 됩니다.",
+    (error) => {
+      assert.ok(error instanceof LocalDemoApiError);
+      assert.equal(error.status, 422);
+      assert.equal(error.code, "unsupported_local_transcript");
+      assert.doesNotMatch(JSON.stringify(error), /demo[-_ ]?fallback/i);
+      return true;
+    },
   );
 });
 
-test("hospital directory is reference data, not an acceptance decision", { skip: !existsSync(builtWorkerPath) }, async () => {
-  const response = await fetchApplication(
-    new Request("http://localhost/api/local/hospitals", { headers: { accept: "application/json" } }),
-  );
-  assert.equal(response.status, 200);
-  const payload = await response.json();
+test("hospital directory fixture is reference data, not an acceptance decision", () => {
+  const payload = getLocalHospitalDirectory();
   assert.ok(Array.isArray(payload.hospitals) && payload.hospitals.length > 0);
 
   for (const hospital of payload.hospitals) {
@@ -262,7 +225,8 @@ test("the explicit demo workflow always uses the local voice proposal endpoint",
 
   assert.match(api, /if\s*\(options\?\.forceLocal\)\s*return\s*request\("local"\);/);
   assert.match(mobile, /forceLocal:\s*!operational/);
-  assert.match(api, /localPath:\s*"agent"/);
+  assert.match(api, /localRequest:\s*\(\)\s*=>\s*createLocalVoiceProposal\(requestBody\)/);
+  assert.doesNotMatch(api, /api\/local/);
 });
 
 test("a hospital without an assigned request sees an idle queue instead of an access error", () => {

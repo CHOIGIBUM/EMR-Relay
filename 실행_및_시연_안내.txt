@@ -6,11 +6,11 @@ EMS Relay 프론트엔드 MVP 실행 안내
 4. 구급대 화면에서 사건 선택 → 출동 시작 순서로 시연합니다.
 5. 여러 역할을 동시에 보여주려면 아래 주소를 각각 새 탭으로 엽니다.
 
-구급대원: http://localhost:3000/?view=mobile
-상황실:   http://localhost:3000/?view=control
-병원:     http://localhost:3000/?view=hospital
-보고서:   http://localhost:3000/?view=report
-전체흐름: http://localhost:3000/?view=workflow
+구급대원: http://localhost:3000/paramedic
+상황실:   http://localhost:3000/control
+병원:     http://localhost:3000/hospital
+보고서:   http://localhost:3000/reports
+전체흐름: http://localhost:3000/demo/workflow
 
 한 탭의 조작이 다른 탭에도 반영됩니다. 처음부터 다시 시작하려면 상단의 초기화 버튼을 누릅니다.
 

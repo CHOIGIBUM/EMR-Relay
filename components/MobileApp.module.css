@@ -28,38 +28,12 @@
 }
 
 .device::after {
-  content: "";
-  position: absolute;
-  z-index: 30;
-  bottom: 5px;
-  left: 50%;
-  width: 112px;
-  height: 4px;
-  border-radius: 99px;
-  background: #546775;
-  transform: translateX(-50%);
-}
-
-.deviceBar {
-  min-height: 25px;
-  padding: 5px 14px 2px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  color: #fff;
-  background: #08273f;
-  font-size: 10px;
-}
-
-.deviceBar span {
-  color: #c6d9e3;
-  font-size: 8px;
-  letter-spacing: 0.03em;
+  display: none;
 }
 
 .appHeader {
-  min-height: 62px;
-  padding: 10px 14px;
+  min-height: 72px;
+  padding: 11px 16px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -67,9 +41,28 @@
   background: #08273f;
 }
 
+.brandHome {
+  min-width: 0;
+  min-height: 48px;
+  padding: 4px 8px 4px 4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  border: 0;
+  border-radius: 13px;
+  background: transparent;
+  text-align: left;
+  transition: background 140ms ease, transform 140ms ease;
+}
+
+.brandHome:hover { background: rgba(255, 255, 255, 0.08); }
+.brandHome:active { transform: scale(0.98); }
+.brandHome:focus-visible { outline: 3px solid #67d7d8; outline-offset: 2px; }
+
 .brandMark {
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   color: #fff;
@@ -86,14 +79,14 @@
 }
 
 .brandText strong {
-  font-size: 15px;
+  font-size: 17px;
   letter-spacing: -0.03em;
 }
 
 .brandText span {
-  margin-top: 1px;
+  margin-top: 2px;
   color: #9ebac9;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .connection {
@@ -102,13 +95,14 @@
   align-items: center;
   gap: 4px;
   color: #b9d2dc;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 750;
+  white-space: nowrap;
 }
 
 .connection i {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: #4bd4a0;
 }
@@ -120,8 +114,8 @@
 .connection[data-state="reconnecting"] i { background: #f4b65d; }
 
 .contextHeader {
-  min-height: 52px;
-  padding: 8px 12px;
+  min-height: 58px;
+  padding: 9px 14px;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -130,8 +124,8 @@
 }
 
 .contextHeader > button {
-  width: 34px;
-  height: 34px;
+  width: 42px;
+  height: 42px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -149,13 +143,13 @@
 
 .contextHeader strong {
   color: #122c40;
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .contextHeader div span {
-  margin-top: 1px;
+  margin-top: 2px;
   color: #748792;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .contextHeader > span {
@@ -164,15 +158,15 @@
 
 .statusBadge {
   width: max-content;
-  min-height: 22px;
-  padding: 4px 7px;
+  min-height: 26px;
+  padding: 5px 9px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 999px;
   color: #526973;
   background: #edf2f4;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   line-height: 1;
   white-space: nowrap;
@@ -185,13 +179,14 @@
 
 .sourceTag {
   width: max-content;
-  padding: 4px 7px;
+  min-height: 25px;
+  padding: 5px 8px;
   display: inline-flex;
   align-items: center;
   border-radius: 999px;
   color: #5f727c;
   background: #edf2f4;
-  font-size: 8px;
+  font-size: 10px;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -202,7 +197,7 @@
 .phoneScroll {
   min-height: 0;
   flex: 1;
-  padding: 12px 12px 26px;
+  padding: 14px 14px 32px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -222,21 +217,22 @@
 .listLead span,
 .cardEyebrow {
   color: #087c87;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 850;
 }
 
 .listLead h1 {
   margin: 3px 0 0;
   color: #122d41;
-  font-size: 20px;
+  font-size: 23px;
   letter-spacing: -0.05em;
 }
 
 .listLead p {
   margin: 4px 0 0;
   color: #71848e;
-  font-size: 10px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .listLead button {
@@ -272,7 +268,7 @@
 
 .caseTop > span {
   color: #087d88;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 900;
 }
 
@@ -281,20 +277,20 @@
   align-items: center;
   gap: 4px;
   color: #70828d;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .caseCard > strong {
   display: block;
   margin-top: 11px;
-  font-size: 17px;
+  font-size: 20px;
   letter-spacing: -0.04em;
 }
 
 .caseCard > p {
   margin: 5px 0 0;
   color: #506975;
-  font-size: 11px;
+  font-size: 13px;
   line-height: 1.5;
 }
 
@@ -304,7 +300,7 @@
   align-items: center;
   gap: 5px;
   color: #607782;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .caseFooter {
@@ -318,7 +314,7 @@
 
 .caseFooter > span:nth-child(2) {
   color: #748790;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .caseFooter svg { margin-left: auto; color: #6e838d; }
@@ -333,7 +329,7 @@
   color: #87969d;
   border: 1px dashed #cad8dd;
   border-radius: 13px;
-  font-size: 10px;
+  font-size: 12px;
 }
 
 .reportCard,
@@ -394,8 +390,8 @@
   background: #f2f6f8;
 }
 
-.reportCard dt { color: #778991; font-size: 8px; }
-.reportCard dd { margin: 3px 0 0; color: #183247; font-size: 10px; font-weight: 800; }
+.reportCard dt { color: #778991; font-size: 10px; }
+.reportCard dd { margin: 3px 0 0; color: #183247; font-size: 12px; font-weight: 800; }
 
 .routeCard {
   margin-top: 10px;
@@ -446,9 +442,9 @@
   flex-direction: column;
 }
 
-.routeCard div > span { color: #657b86; font-size: 9px; }
+.routeCard div > span { color: #657b86; font-size: 11px; }
 .routeCard div > strong { font-size: 19px; }
-.routeCard div > small { margin-top: 2px; color: #7b8d95; font-size: 8px; }
+.routeCard div > small { margin-top: 2px; color: #7b8d95; font-size: 10px; }
 
 .locationCard {
   margin-top: 10px;
@@ -464,9 +460,10 @@
   gap: 7px;
 }
 
-.locationCard strong { font-size: 11px; }
-.locationCard p { margin: 5px 0 0 25px; color: #6c808a; font-size: 9px; }
-.locationCard button { margin: 11px 0 0; padding: 8px 10px; display: flex; align-items: center; gap: 6px; color: #087b85; border: 1px solid #b9dadd; border-radius: 9px; background: #f2faf9; font-size: 9px; font-weight: 800; }
+.locationCard strong { font-size: 13px; }
+.locationCard p { margin: 5px 0 0 25px; color: #6c808a; font-size: 11px; line-height: 1.45; }
+.locationCard a { width: max-content; min-height: 44px; margin: 11px 0 0; padding: 8px 12px; display: flex; align-items: center; gap: 6px; color: #087b85; border: 1px solid #b9dadd; border-radius: 9px; background: #f2faf9; font-size: 12px; font-weight: 800; text-decoration: none; }
+.phoneUnavailable { width: max-content; margin-top: 11px; display: flex; align-items: center; gap: 6px; color: #73868e; font-size: 12px; }
 
 .timeStrip {
   margin-top: 12px;
@@ -495,8 +492,8 @@
   font-weight: 850;
 }
 
-.timeStrip > div strong { margin-top: 5px; font-size: 9px; }
-.timeStrip > div time { margin-top: 2px; font-size: 7px; }
+.timeStrip > div strong { margin-top: 5px; font-size: 11px; }
+.timeStrip > div time { margin-top: 2px; font-size: 9px; }
 .timeStrip > i { flex: 1; height: 2px; margin-top: 12px; background: #dce5e8; }
 .timeStrip > div[data-state="done"] { color: #158879; }
 .timeStrip > div[data-state="done"] > span { color: #fff; background: #179586; }
@@ -531,7 +528,7 @@
   display: block;
   margin-top: 7px;
   color: #778992;
-  font-size: 8px;
+  font-size: 10px;
   text-align: center;
 }
 
@@ -545,7 +542,7 @@
 
 .arrivalHero > span { width: 52px; height: 52px; margin: 0 auto; display: grid; place-items: center; border-radius: 50%; background: rgba(255,255,255,0.13); }
 .arrivalHero h1 { margin: 11px 0 0; font-size: 18px; }
-.arrivalHero p { margin: 5px 0 0; color: #cbe3e8; font-size: 10px; }
+.arrivalHero p { margin: 5px 0 0; color: #cbe3e8; font-size: 12px; }
 
 .arrivalChecklist {
   margin-top: 10px;
@@ -567,8 +564,44 @@
 .arrivalChecklist > div:last-child { border-bottom: 0; }
 .arrivalChecklist svg { color: #0c828c; }
 .arrivalChecklist span:nth-child(2) { display: flex; flex: 1; flex-direction: column; }
-.arrivalChecklist strong { font-size: 10px; }
-.arrivalChecklist small { margin-top: 3px; color: #748791; font-size: 8px; }
+.arrivalChecklist strong { font-size: 12px; }
+.arrivalChecklist small { margin-top: 3px; color: #748791; font-size: 10px; line-height: 1.4; }
+
+.nextActionCard,
+.contactContext {
+  margin-top: 12px;
+  padding: 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  color: #163348;
+  border: 1px solid #bcdcdf;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f5fbfb, #e8f5f4);
+}
+
+.nextActionCard > span,
+.contactContext > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #fff;
+  border-radius: 12px;
+  background: #087f8c;
+}
+
+.nextActionCard > div,
+.contactContext > div { min-width: 0; display: flex; flex-direction: column; }
+.nextActionCard small,
+.contactContext small { color: #087680; font-size: 10px; font-weight: 850; }
+.nextActionCard strong,
+.contactContext strong { margin-top: 3px; font-size: 13px; line-height: 1.4; }
+.nextActionCard p,
+.contactContext p { margin: 5px 0 0; color: #657c86; font-size: 11px; line-height: 1.5; }
+
+.contactContext { margin-top: 0; border-color: #8bc8cb; background: linear-gradient(135deg, #edf9f7, #e1f2f3); }
 
 .noticeBox,
 .warningBox,
@@ -589,9 +622,9 @@
 .noticeBox span,
 .warningBox span { display: flex; flex-direction: column; }
 .noticeBox strong,
-.warningBox strong { color: inherit; font-size: 9px; }
+.warningBox strong { color: inherit; font-size: 12px; }
 .noticeBox small,
-.warningBox small { margin-top: 3px; color: #647b86; font-size: 8px; line-height: 1.45; }
+.warningBox small { margin-top: 3px; color: #647b86; font-size: 10px; line-height: 1.5; }
 
 .patientIdentity {
   padding: 14px;
@@ -601,9 +634,9 @@
 }
 
 .patientIdentity > div { flex: 1; }
-.patientIdentity span:first-child { color: #087b86; font-size: 8px; font-weight: 850; }
+.patientIdentity span:first-child { color: #087b86; font-size: 10px; font-weight: 850; }
 .patientIdentity h1 { margin: 3px 0 0; font-size: 20px; letter-spacing: -0.05em; }
-.patientIdentity p { margin: 4px 0 0; color: #687e88; font-size: 9px; }
+.patientIdentity p { margin: 4px 0 0; color: #687e88; font-size: 11px; }
 
 .formSection {
   margin-top: 10px;
@@ -626,8 +659,8 @@
 }
 
 .sectionTitle svg { color: #087e89; }
-.sectionTitle strong { font-size: 11px; }
-.sectionTitle > span { color: #7b8c94; font-size: 8px; }
+.sectionTitle strong { font-size: 13px; }
+.sectionTitle > span { color: #7b8c94; font-size: 10px; }
 
 .measureButton {
   width: 100%;
@@ -645,8 +678,8 @@
 }
 
 .measureButton span { display: flex; flex-direction: column; }
-.measureButton strong { font-size: 11px; }
-.measureButton small { margin-top: 3px; color: #668087; font-size: 9px; line-height: 1.4; }
+.measureButton strong { font-size: 13px; }
+.measureButton small { margin-top: 3px; color: #668087; font-size: 10px; line-height: 1.45; }
 
 .vitalGrid {
   margin-top: 9px;
@@ -662,11 +695,11 @@
   background: #f7fafb;
 }
 
-.vitalGrid label > span { color: #667c87; font-size: 10px; font-weight: 750; }
+.vitalGrid label > span { color: #667c87; font-size: 11px; font-weight: 750; }
 .vitalGrid label > div { margin-top: 3px; display: flex; align-items: baseline; gap: 4px; }
 .vitalGrid input { width: 100%; min-width: 0; padding: 0; color: #122e42; border: 0; outline: 0; background: transparent; font-size: 15px; font-weight: 850; }
-.vitalGrid input::placeholder { color: #a8b4b9; font-size: 10px; font-weight: 500; }
-.vitalGrid small { color: #778b94; font-size: 9px; white-space: nowrap; }
+.vitalGrid input::placeholder { color: #a8b4b9; font-size: 11px; font-weight: 500; }
+.vitalGrid small { color: #778b94; font-size: 10px; white-space: nowrap; }
 
 .choiceRow,
 .cardioAssessmentRow {
@@ -682,14 +715,14 @@
 .choiceRow > span,
 .cardioAssessmentRow > div:first-child { display: flex; flex-direction: column; }
 .choiceRow strong,
-.cardioAssessmentRow strong { font-size: 10px; }
+.cardioAssessmentRow strong { font-size: 12px; }
 .choiceRow small,
-.cardioAssessmentRow small { margin-top: 2px; color: #7a8b93; font-size: 9px; }
+.cardioAssessmentRow small { margin-top: 2px; color: #7a8b93; font-size: 10px; }
 .choiceRow > div,
 .cardioAssessmentRow > div:last-child { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
 .choiceRow button,
 .cardioAssessmentRow button,
-.cardioAssessmentRow > div:last-child > span { min-height: 30px; padding: 0 8px; display: inline-flex; align-items: center; color: #657983; border: 1px solid #d4e0e4; border-radius: 7px; background: #fff; font-size: 9px; font-weight: 800; }
+.cardioAssessmentRow > div:last-child > span { min-height: 34px; padding: 0 9px; display: inline-flex; align-items: center; color: #657983; border: 1px solid #d4e0e4; border-radius: 7px; background: #fff; font-size: 10px; font-weight: 800; }
 .choiceRow .choiceActive,
 .cardioAssessmentRow .choiceActive { color: #fff; border-color: #087f8c; background: #087f8c; box-shadow: 0 4px 10px rgba(8,127,140,0.18); }
 
@@ -707,9 +740,9 @@
 }
 
 .timeSection > div:last-child { border-bottom: 0; }
-.timeSection span { display: flex; align-items: center; gap: 5px; color: #657b86; font-size: 10px; }
+.timeSection span { display: flex; align-items: center; gap: 5px; color: #657b86; font-size: 11px; }
 .timeSection strong { color: #173247; font-size: 14px; }
-.timeSection small { grid-column: 1 / -1; margin-top: -8px; color: #86969d; font-size: 9px; }
+.timeSection small { grid-column: 1 / -1; margin-top: -8px; color: #86969d; font-size: 10px; }
 
 .reassessmentForm {
   margin-top: 10px;
@@ -733,7 +766,7 @@
 
 .pttButton {
   width: 100%;
-  min-height: 65px;
+  min-height: 76px;
   margin-top: 10px;
   padding: 10px 15px;
   display: flex;
@@ -745,23 +778,26 @@
   background: linear-gradient(135deg, #0a929b, #08717e);
   box-shadow: 0 11px 24px rgba(8, 127, 140, 0.22);
   text-align: left;
+  touch-action: manipulation;
   user-select: none;
 }
 
-.pttButton > span { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; background: rgba(255,255,255,0.15); }
+.pttButton > span { width: 48px; height: 48px; display: grid; flex: 0 0 auto; place-items: center; border-radius: 14px; background: rgba(255,255,255,0.15); }
 .pttButton > div { display: flex; flex-direction: column; }
-.pttButton strong { font-size: 14px; }
-.pttButton small { margin-top: 3px; color: #c6e5e8; font-size: 8px; }
+.pttButton strong { font-size: 16px; }
+.pttButton small { margin-top: 4px; color: #c6e5e8; font-size: 10px; line-height: 1.4; }
+.pttButton:active { transform: scale(0.985); }
+.pttButton:focus-visible { outline: 3px solid #58d0d3; outline-offset: 3px; }
 
 .fullAction {
-  min-height: 48px;
+  min-height: 54px;
   margin-top: 12px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 14px;
 }
 
 .fullAction:disabled { color: #8b9aa1; background: #dfe7ea; box-shadow: none; }
-.requirement { margin: 7px 4px 0; color: #8a6a3f; font-size: 7px; text-align: center; }
+.requirement { margin: 8px 4px 0; color: #8a6a3f; font-size: 10px; line-height: 1.45; text-align: center; }
 
 .summaryHero {
   padding: 14px;
@@ -1215,8 +1251,8 @@
 .completeDetails strong { color: #167864; font-size: 9px; }
 
 .bottomTabs {
-  min-height: 64px;
-  padding: 5px 8px 15px;
+  min-height: 72px;
+  padding: 7px 8px 10px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 3px;
@@ -1235,7 +1271,7 @@
   border: 0;
   border-radius: 9px;
   background: transparent;
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 750;
 }
 
@@ -1362,7 +1398,7 @@
 
 .voiceClose {
   position: absolute;
-  top: 38px;
+  top: 18px;
   right: 18px;
   width: 34px;
   height: 34px;
@@ -1377,7 +1413,7 @@
 .listeningPanel,
 .voiceReview {
   width: 100%;
-  padding: 22px;
+  padding: 24px;
   color: #fff;
   border: 1px solid rgba(255,255,255,0.12);
   border-radius: 20px;
@@ -1390,18 +1426,19 @@
 .reviewIcon { width: 58px; height: 58px; margin: 0 auto; display: grid; place-items: center; color: #fff; border-radius: 50%; background: #0c99a2; box-shadow: 0 0 0 8px rgba(12,153,162,0.13); animation: pulse 1.6s infinite; }
 .reviewIcon { animation: none; }
 .listeningPanel h2,
-.voiceReview h2 { margin: 16px 0 0; font-size: 18px; }
+.voiceReview h2 { margin: 16px 0 0; font-size: 21px; }
 .listeningPanel > p,
-.voiceReview > p { margin: 7px 0 0; color: #aac5d2; font-size: 11px; line-height: 1.55; }
+.voiceReview > p { margin: 8px 0 0; color: #aac5d2; font-size: 13px; line-height: 1.55; }
 .liveTranscript,
-.transcriptBox { min-height: 86px; margin-top: 18px; padding: 14px; color: #eef9fa; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(255,255,255,0.07); font-size: 12px; font-weight: 700; line-height: 1.65; text-align: left; }
+.transcriptBox { min-height: 96px; margin-top: 18px; padding: 15px; color: #eef9fa; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; background: rgba(255,255,255,0.07); font-size: 14px; font-weight: 700; line-height: 1.65; text-align: left; }
 .liveTranscript i { display: inline-block; width: 2px; height: 14px; margin-left: 3px; vertical-align: middle; background: #59d5d7; animation: blink 0.8s step-end infinite; }
-.listeningPanel > button { width: 100%; min-height: 44px; margin-top: 14px; color: #d4e8ee; border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; background: rgba(255,255,255,0.08); font-size: 11px; font-weight: 800; }
+.listeningPanel > button { width: 100%; min-height: 52px; margin-top: 16px; color: #fff; border: 1px solid rgba(255,255,255,0.23); border-radius: 12px; background: rgba(255,255,255,0.12); font-size: 14px; font-weight: 850; }
+.listeningPanel > button:disabled { cursor: progress; opacity: .68; }
 
 .voiceReview { max-height: 690px; overflow-y: auto; color: #183247; background: #fff; }
 .voiceReview h2 { color: #122d42; }
 .voiceReview > p { color: #6a7e88; }
-.transcriptBox { min-height: auto; color: #294754; border-color: #d6e4e7; background: #eef5f6; font-size: 11px; }
+.transcriptBox { min-height: auto; color: #294754; border-color: #d6e4e7; background: #eef5f6; font-size: 13px; }
 .extractedList { margin-top: 12px; overflow: hidden; border: 1px solid #d9e5e8; border-radius: 11px; text-align: left; }
 .extractedList > button {
   width: 100%;
@@ -1422,10 +1459,10 @@
 .extractedList > button:last-child { border-bottom: 0; }
 .extractedList > button:hover { background: #f4f9fa; }
 .extractedList > button.choiceActive { border-left-color: #087f8c; background: #eaf7f6; }
-.extractedList > button > span:first-child { color: #607680; font-size: 10px; font-weight: 750; }
-.extractedList strong { font-size: 11px; line-height: 1.35; }
+.extractedList > button > span:first-child { color: #607680; font-size: 11px; font-weight: 750; }
+.extractedList strong { font-size: 13px; line-height: 1.35; }
 .reviewActions { margin-top: 13px; display: grid; grid-template-columns: 0.7fr 1.4fr; gap: 7px; }
-.reviewActions button { min-height: 45px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid #d5e1e5; border-radius: 10px; background: #fff; font-size: 11px; font-weight: 850; }
+.reviewActions button { min-height: 50px; display: flex; justify-content: center; align-items: center; gap: 6px; border: 1px solid #d5e1e5; border-radius: 10px; background: #fff; font-size: 13px; font-weight: 850; }
 .reviewActions button:disabled { opacity: 0.48; cursor: not-allowed; }
 .reviewActions button:last-child { color: #fff; border-color: #087f8c; background: #087f8c; }
 .spinning { animation: spin 800ms linear infinite; }
@@ -1475,7 +1512,7 @@
 }
 
 .operationalDevice {
-  width: min(100%, 520px);
+  width: min(100%, 430px);
   height: 100dvh;
   min-height: 100dvh;
   margin: 0 auto;
@@ -1485,13 +1522,20 @@
 }
 
 .operationalDevice::after { display: none; }
-.operationalDevice .deviceBar { padding-top: max(5px, env(safe-area-inset-top)); }
-.operationalDevice :is(button, input, textarea, select) { min-height: 44px; }
-.operationalDevice button { font-size: 12px; }
-.operationalDevice :is(p, small, dt, dd, label, time) { font-size: 12px; }
+.operationalDevice .appHeader { padding-top: max(11px, env(safe-area-inset-top)); }
+.operationalDevice :is(button, input, textarea, select) { min-height: 44px; font-size: 13px; }
+.operationalDevice :is(p, small, dt, dd, label, time, span) { font-size: 12px; }
 .operationalDevice :is(strong, .statusBadge, .sourceTag) { font-size: 13px; }
 .operationalDevice h1 { font-size: 22px; }
 .operationalDevice h2 { font-size: 18px; }
+.operationalDevice .brandText strong { font-size: 17px; }
+.operationalDevice .contextHeader strong { font-size: 15px; }
+.operationalDevice .caseCard > strong { font-size: 20px; }
+.operationalDevice .routeCard div > strong { font-size: 19px; }
+.operationalDevice .pttButton strong { font-size: 16px; }
+.operationalDevice .compactVitals strong { font-size: 16px; }
+.operationalDevice .etaPanel strong { font-size: 24px; }
+.operationalDevice :is(.listeningPanel, .voiceReview) h2 { font-size: 21px; }
 .operationalDevice .phoneScroll { padding-bottom: calc(92px + env(safe-area-inset-bottom)); }
 .operationalDevice .bottomTabs { padding-bottom: max(8px, env(safe-area-inset-bottom)); }
 .operationalDevice .voiceOverlay { position: fixed; inset: 0; }
@@ -1528,6 +1572,12 @@
     border: 0;
     border-radius: 0;
     box-shadow: none;
+  }
+
+  .operationalDevice {
+    width: 100%;
+    height: 100dvh;
+    min-height: 100dvh;
   }
 
   .device::after {

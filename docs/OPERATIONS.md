@@ -2,7 +2,7 @@
 
 이 문서는 `ems-relay-cgb` AWS CLI profile, 계정 `462993243992`, 리전 `us-west-2` 전용이다. 명령에 access key, 비밀번호, 공공데이터 key, Kakao key를 직접 넣거나 출력하지 않는다.
 
-필수 도구는 AWS CLI v2, AWS SAM CLI, Node.js 22, Python 3.12, Amazon Bedrock AgentCore CLI다. 프론트 배포에는 이 저장소와 연결된 Codex Sites 접근 권한이 추가로 필요하다.
+필수 도구는 AWS CLI v2, AWS SAM CLI, Node.js 22, Python 3.12, Amazon Bedrock AgentCore CLI다. 프론트는 AWS Amplify Hosting의 수동 정적 배포를 사용한다.
 
 ## 1. 공통 변수와 계정 보호
 
@@ -15,7 +15,8 @@ $Profile = "ems-relay-cgb"
 $Region = "us-west-2"
 $ExpectedAccount = "462993243992"
 $Stack = "ems-relay-backend"
-$SiteUrl = "https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site"
+$SiteUrl = "https://main.d2edch3bt6kxej.amplifyapp.com"
+$AmplifyAppId = "d2edch3bt6kxej"
 $AgentRuntimeId = "EMSRelayProposal-plEVqA20bj"
 $HealthLakeId = "b93de77cda6c8d6b8c6663df64d89bec"
 
@@ -70,8 +71,7 @@ Kakao JavaScript key는 브라우저에 전달되는 공개 식별자이므로 �
 npm.cmd ci
 npm.cmd run typecheck
 npm.cmd run lint
-node --test tests/*.test.mjs
-npm.cmd run build
+npm.cmd test
 ```
 
 ### 3.2 백엔드
@@ -105,7 +105,7 @@ Pop-Location
 
 ## 4. 배포 순서
 
-배포 순서는 AgentCore → HealthLake 상태 확인 → SAM backend → Sites frontend다. Backend에 전달하는 AgentCore ARN과 HealthLake endpoint가 달라지면 반드시 backend를 다시 배포한다.
+배포 순서는 AgentCore → HealthLake 상태 확인 → SAM backend → Amplify frontend다. Backend에 전달하는 AgentCore ARN과 HealthLake endpoint가 달라지면 반드시 backend를 다시 배포한다.
 
 ### 4.1 AgentCore 배포/갱신
 
@@ -214,14 +214,13 @@ Pop-Location
 
 현재 Runtime endpoint는 template의 `AgentRuntimeEndpointArn` 기본값 `.../runtime-endpoint/DEFAULT`와 일치한다. Runtime을 교체하면 template 기본값 또는 배포 parameter도 함께 바꿔야 한다.
 
-### 4.4 프론트 Sites 배포
+### 4.4 AWS Amplify 프론트 배포
 
-`.openai/hosting.json`의 project ID는 `appgprj_6a6ea0650e488191a7874aa2bfa95217`이다. 배포 전에 Sites 환경 변수에 다음 이름을 설정한다. 값은 secret 관리 화면에서 주입하고 문서·터미널 로그에 출력하지 않는다.
+프론트는 Next.js 정적 export 결과인 `out/`을 AWS Amplify Hosting에 배포한다. `NEXT_PUBLIC_*` 값은 브라우저 번들에 공개되므로 공공데이터 인증키, Kakao REST/Admin 키, AWS credential을 넣지 않는다.
 
 ```text
 NEXT_PUBLIC_EMS_API_MODE=remote
 NEXT_PUBLIC_EMS_BACKEND_URL=https://322rrfmbme.execute-api.us-west-2.amazonaws.com
-NEXT_PUBLIC_EMS_LOCAL_API_BASE=/api/local
 NEXT_PUBLIC_EMS_ALLOW_LOCAL_FALLBACK=false
 NEXT_PUBLIC_EMS_OPERATIONAL_MODE=remote
 NEXT_PUBLIC_EMS_DEFAULT_CASE_ID=GW-CARDIO-051
@@ -229,18 +228,29 @@ NEXT_PUBLIC_EMS_ALLOW_DEVELOPMENT_FALLBACK=false
 NEXT_PUBLIC_EMS_SCRIPTED_PTT=false
 NEXT_PUBLIC_COGNITO_DOMAIN=https://ems-relay-462993243992-us-west-2.auth.us-west-2.amazoncognito.com
 NEXT_PUBLIC_COGNITO_CLIENT_ID=3g1ruv6gk8rd63iea0q5i4fiu
-NEXT_PUBLIC_COGNITO_REDIRECT_URI=https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site/auth/callback
-NEXT_PUBLIC_COGNITO_LOGOUT_URI=https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site/login
+NEXT_PUBLIC_COGNITO_REDIRECT_URI=https://main.d2edch3bt6kxej.amplifyapp.com/auth/callback
+NEXT_PUBLIC_COGNITO_LOGOUT_URI=https://main.d2edch3bt6kxej.amplifyapp.com/login
 NEXT_PUBLIC_EMS_DEV_AUTH=false
-NEXT_PUBLIC_KAKAO_MAP_JAVASCRIPT_KEY=<Sites secret로 주입>
+NEXT_PUBLIC_KAKAO_MAP_JAVASCRIPT_KEY=<공개 JavaScript 키만 빌드 시 주입>
 ```
 
-프론트 배포는 AWS CLI 명령이 아니라 Codex Sites의 기존 project 배포 기능으로 수행한다. 현재 접근 정책은 owner-only/private다.
+```powershell
+npm ci
+npm run build
+powershell -ExecutionPolicy Bypass -File .\scripts\deploy-amplify.ps1 `
+  -AppId $AmplifyAppId `
+  -BranchName main `
+  -Profile $Profile `
+  -Region $Region `
+  -ExpectedAccountId $ExpectedAccount
+```
 
-배포 후 Kakao Developers → 앱 → 플랫폼 키/JavaScript SDK → 사이트 도메인에 아래 주소를 등록한다.
+Amplify 주소 자체는 공개되어 있지만 실제 역할 화면과 API는 Cognito 로그인 및 백엔드 객체 권한 검사를 거쳐야 한다.
+
+배포 후 Kakao Developers → 앱 → 플랫폼 키/JavaScript SDK → 사이트 도메인이 아래 주소와 정확히 일치하는지 확인한다. 현재 운영 앱에는 이 주소가 등록되어 있다.
 
 ```text
-https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site
+https://main.d2edch3bt6kxej.amplifyapp.com
 ```
 
 ## 5. 배포 검증
@@ -266,7 +276,7 @@ aws healthlake describe-fhir-datastore `
   --query 'DatastoreProperties.{Status:DatastoreStatus,Endpoint:DatastoreEndpoint}'
 ```
 
-기대값은 stack `UPDATE_COMPLETE`, backend `status=ok`, AgentCore `READY`, HealthLake `ACTIVE`, `agentRuntimeConfigured=true`, `directBedrockFallbackEnabled=false`, `audioStorage=disabled`다.
+기대값은 stack `UPDATE_COMPLETE`, backend `status=ok`, AgentCore `READY`, HealthLake `ACTIVE`, `agent.agentRuntimeConfigured=true`, `agent.directBedrockFallbackEnabled=false`, `audioStorage=disabled`다.
 
 ### 5.2 운영용 빈 사건 준비
 
@@ -418,6 +428,11 @@ endpoint가 아직 `DELETING`이면 Runtime 삭제를 잠시 뒤 다시 실행�
 사건·보고서를 보존할 필요가 없다고 명시적으로 승인한 경우에만 실행한다.
 
 ```powershell
+aws amplify delete-app --app-id $AmplifyAppId `
+  --profile $Profile --region $Region
+```
+
+```powershell
 aws cognito-idp delete-user-pool --user-pool-id us-west-2_U8OPmgc5R `
   --profile $Profile --region $Region
 
@@ -483,4 +498,4 @@ aws resourcegroupstaggingapi get-resources `
 
 삭제된 resource 조회는 `ResourceNotFound` 계열 오류가 정상이다. 마지막 명령 결과에 남은 EMS Relay 리소스가 있으면 비용과 보존 필요성을 각각 확인한다.
 
-마지막으로 Codex Sites project를 비활성화하거나 보관하고, Kakao Developers에서 Sites 도메인을 제거한 뒤 사용하지 않는 Kakao key를 회전한다. 이 두 작업은 AWS CLI 정리 범위 밖이다.
+마지막으로 Amplify app을 삭제하고, Kakao Developers에서 Amplify 도메인을 제거한 뒤 사용하지 않는 Kakao key를 회전한다. Kakao 설정은 AWS CLI 정리 범위 밖이다.

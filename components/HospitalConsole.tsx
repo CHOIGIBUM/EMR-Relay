@@ -5,7 +5,6 @@ import {
   Activity,
   AlertCircle,
   Ambulance,
-  Bell,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -20,7 +19,6 @@ import {
   Send,
   ShieldCheck,
   Stethoscope,
-  UserRound,
   X,
 } from "lucide-react";
 import { STAGE_LABEL, stageAtLeast, useDemo } from "./DemoContext";
@@ -37,7 +35,7 @@ export default function HospitalConsole() {
   const [modal, setModal] = useState<Modal>(null);
   const [infoFields, setInfoFields] = useState<string[]>(["재평가 활력징후", "항혈소판제·항응고제 복용"]);
   const [declineReason, setDeclineReason] = useState("현재 진료 여력 부족");
-  const [receiver, setReceiver] = useState("이○○");
+  const [receiver, setReceiver] = useState("");
   const [receiverRole, setReceiverRole] = useState("간호사");
   const requestVisible = stageAtLeast(state.stage, "hospital-requested") || state.stage === "declined";
   const arrivedAtHospital = stageAtLeast(state.stage, "hospital-arrived") && state.stage !== "declined";
@@ -70,35 +68,36 @@ export default function HospitalConsole() {
     dispatch({ type: "RECEIVE_PATIENT", receiver: receiver.trim(), role: receiverRole });
   };
 
+  if (!requestVisible) {
+    return (
+      <section className={`${styles.console} ${styles.emptyConsole}`} aria-label="EMS Relay 병원 수용 웹 화면">
+        <div className={styles.emptyWorkspace}>
+          <span className={styles.emptyIcon}><Hospital size={40} /></span>
+          <Badge tone="slate">신규 요청 대기</Badge>
+          <h1>현재 확인할 수용 요청이 없습니다</h1>
+          <p>구급대가 병원 수용 문의를 보내면 환자 핵심정보, 예상 도착시간과 회신 버튼이 이 화면에 표시됩니다.</p>
+          <div className={styles.emptyStatus}>
+            <div><small>배정 기관</small><strong>{selectedHospital?.name ?? "병원 계정 확인 중"}</strong></div>
+            <div><small>연결 상태</small><strong>{sync.waitingForRequest ? "요청 대기" : sync.connection === "connected" ? "실시간 연결" : "연결 확인 중"}</strong></div>
+            <div><small>병원 업무</small><strong>추가정보 요청 · 수용 회신</strong></div>
+          </div>
+          <div className={styles.emptyBoundary}><ShieldCheck size={20} /><span><strong>수용 여부는 병원 담당자가 직접 판단하고 회신합니다.</strong><small>기관정보나 AI가 수용 결정을 대신하지 않습니다.</small></span></div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className={styles.console} aria-label="EMS Relay 병원 수용 웹 화면">
-      <header className={styles.consoleHeader}>
-        <div className={styles.brand}>
-          <span><Stethoscope size={22} /></span>
-          <div><strong>EMS Relay</strong><small>{selectedHospital?.name ?? "병원 수용 콘솔"}</small></div>
-        </div>
-        <nav aria-label="병원 업무 상태">
-          <button className={!requestVisible ? styles.navActive : ""}>요청 대기</button>
-          <button className={requestVisible && !stageAtLeast(state.stage, "transporting") ? styles.navActive : ""}>수용 검토 {requestVisible && !stageAtLeast(state.stage, "transporting") && state.stage !== "declined" ? <b>1</b> : null}</button>
-          <button className={stageAtLeast(state.stage, "transporting") && state.stage !== "complete" ? styles.navActive : ""}>도착 예정</button>
-          <button className={state.stage === "complete" ? styles.navActive : ""}>인수 완료</button>
-        </nav>
-        <div className={styles.staff}>
-          <span className={styles.live}><i /> {sync.waitingForRequest ? "요청 대기" : sync.connection === "connected" ? "실시간 연결" : "연결 확인 중"}</span>
-          <button aria-label="알림"><Bell size={18} />{state.stage === "hospital-requested" || state.stage === "info-sent" || state.stage === "handoff-sent" ? <i /> : null}</button>
-          <div><span><UserRound size={17} /></span><p><strong>이○○</strong><small>응급실 수용 담당</small></p></div>
-        </div>
-      </header>
-
       <div className={styles.workspace}>
         <aside className={styles.queue}>
           <div className={styles.queueTitle}><span>신규 수용 요청</span><h2>대기 <b>{requestVisible && state.stage !== "complete" ? 1 : 0}</b></h2></div>
           {requestVisible ? (
-            <button className={styles.queueCard}>
+            <article className={styles.queueCard} aria-label={`${SCENARIO.id} 수용 요청`}>
               <i data-tone={status.tone} />
               <div><span><strong>{SCENARIO.id}</strong><time>{state.events.at(-1)?.time}</time></span><b>{SCENARIO.patient}</b><p>{SCENARIO.chiefComplaint}</p><small><Clock3 size={13} /> 발생 {SCENARIO.onset} · {arrivedAtHospital ? "도착 확인" : `ETA ${selectedHospital?.eta ?? "—"}`}</small></div>
               <ChevronRight size={18} />
-            </button>
+            </article>
           ) : (
             <div className={styles.queueEmpty}><Hospital size={23} /><strong>새 요청이 없습니다</strong><span>구급대가 수용 확인을 요청하면 표시됩니다.</span></div>
           )}
@@ -106,14 +105,6 @@ export default function HospitalConsole() {
         </aside>
 
         <main className={styles.caseArea}>
-          {!requestVisible ? (
-            <div className={styles.emptyCase}>
-              <span><Hospital size={31} /></span>
-              <h1>신규 수용 요청 대기</h1>
-              <p>현재 확인할 환자 요청이 없습니다.<br />요청이 도착하면 환자 핵심정보와 필요한 동작만 표시됩니다.</p>
-            </div>
-          ) : (
-            <>
               <header className={styles.caseHeader}>
                 <div><span>수용 문의</span><div><h1>{SCENARIO.id}</h1><Badge tone={status.tone}>{status.label}</Badge></div><p><Ambulance size={15} /> {SCENARIO.unit} <MapPin size={15} /> {SCENARIO.locationShort} <Clock3 size={15} /> 요청 {timeFor("병원 수용 문의")}</p></div>
                 <div className={styles.eta}><span>{arrivedAtHospital ? "도착 상태" : "예상 도착"}</span><strong>{arrivedAtHospital ? "도착" : selectedHospital?.eta ?? "경로 조회 전"}</strong><small>{arrivedAtHospital ? timeFor("병원 도착") : state.stage === "transporting" ? "이송 중" : "현장 대기"}</small></div>
@@ -176,8 +167,6 @@ export default function HospitalConsole() {
                   </section>
                 )}
               </div>
-            </>
-          )}
         </main>
 
         <aside className={styles.actionPanel}>
@@ -241,7 +230,7 @@ export default function HospitalConsole() {
             {modal === "accept" && (
               <>
                 <span className={`${styles.modalIcon} ${styles.acceptIcon}`}><CheckCircle2 size={25} /></span><h2>수용 가능으로 회신</h2><p>구급대와 상황실에 다음 안내가 전달됩니다.</p>
-                <div className={styles.replyPreview}><span>진입 위치</span><strong>응급실 구급차 출입구</strong><span>연락</span><strong>도착 전 구급대 전화</strong><span>담당</span><strong>응급실 이○○</strong></div>
+                <div className={styles.replyPreview}><span>진입 위치</span><strong>응급실 구급차 출입구</strong><span>연락</span><strong>도착 전 구급대 전화</strong></div>
                 <button className={styles.modalPrimary} onClick={() => { dispatch({ type: "ACCEPT" }); setModal(null); }}><CheckCircle2 size={18} /> 수용 가능 회신</button>
               </>
             )}

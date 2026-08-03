@@ -18,10 +18,12 @@
   box-shadow: 0 28px 75px rgba(24, 60, 78, 0.15);
 }
 
-.brand { display: flex; align-items: center; gap: 14px; }
+.brand { display: flex; align-items: center; gap: 14px; color: inherit; border-radius: 15px; text-decoration: none; }
 .brand img { width: 52px; height: 52px; border-radius: 14px; box-shadow: 0 8px 22px rgba(6, 98, 111, 0.22); }
 .brand strong { display: block; color: #09253f; font-size: 24px; letter-spacing: -0.04em; }
-.brand span { display: block; margin-top: 2px; color: #6c7f8d; font-size: 13px; }
+.brand span { display: block; }
+.brand small { display: block; margin-top: 2px; color: #6c7f8d; font-size: 13px; }
+.brand:hover strong { color: #087f8c; }
 .card h1 { margin: 34px 0 8px; color: #10283d; font-size: 26px; letter-spacing: -0.04em; }
 .card > p { margin: 0 0 24px; color: #617485; font-size: 15px; line-height: 1.65; }
 .primary, .roleButton, .linkButton {

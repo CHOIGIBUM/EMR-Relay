@@ -1,91 +1,67 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { CARDIO_DEMO_PTT_UPDATES } from "../lib/cardioDemoData.ts";
+import {
+  createLocalVoiceProposal,
+  getLocalHealth,
+  getLocalHospitalDirectory,
+} from "../lib/localDemoApi.ts";
 
-async function fetchApplication(request) {
-  const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
-  const { default: worker } = await import(workerUrl.href);
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-  return worker.fetch(
-    request,
-    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
-    { waitUntil() {}, passThroughOnException() {} },
-  );
+function readStaticPage(route = "/") {
+  const segments = route.split("?")[0].split("/").filter(Boolean);
+  return readFileSync(path.join(projectRoot, "out", ...segments, "index.html"), "utf8");
 }
 
-async function render(pathname = "/") {
-  return fetchApplication(
-    new Request(`http://localhost${pathname}`, { headers: { accept: "text/html" } }),
-  );
-}
-
-test("renders the role login shell", async () => {
-  const response = await render();
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
-
-  const html = await response.text();
+test("exports the role login shell for AWS Amplify static hosting", () => {
+  const html = readStaticPage();
   assert.match(html, /<title>EMS Relay \| 심혈관 응급환자 실시간 인계<\/title>/i);
   assert.match(html, /EMS Relay/);
   assert.match(html, /업무 계정으로 로그인/);
   assert.match(html, /소속과 역할/);
   assert.match(html, /og:image/);
+  assert.match(html, /main\.d2edch3bt6kxej\.amplifyapp\.com\/og\.png/);
   assert.doesNotMatch(html, /codex-preview|Your site is taking shape|react-loading-skeleton/i);
 });
 
-test("keeps the complete local workflow at an explicit demo route", async () => {
-  const response = await render("/demo/workflow?view=mobile");
-  assert.equal(response.status, 200);
-  const html = await response.text();
+test("exports the complete demo workflow as a static route", () => {
+  const html = readStaticPage("/demo/workflow");
   assert.match(html, /EMS Relay/);
-  assert.match(html, /구급대/);
+  assert.match(html, /구급대원/);
   assert.match(html, /EMS-GW-050/);
   assert.match(html, /출동 사건 1건/);
 });
 
-test("operational route shells do not server-render synthetic patient facts", async () => {
-  for (const pathname of ["/paramedic", "/control", "/hospital", "/reports"]) {
-    const response = await render(pathname);
-    assert.equal(response.status, 200);
-    const html = await response.text();
-    assert.doesNotMatch(html, /73세 여성|속초시 합성 현장|와파린|해솔응급의료센터|푸른강권역응급센터|새봄종합병원/);
+test("operational static shells do not embed synthetic patient facts", () => {
+  for (const route of ["/paramedic", "/control", "/hospital", "/reports"]) {
+    const html = readStaticPage(route);
+    assert.doesNotMatch(html, /73세 여성|흉통·의식은 유지|아스피린|한림대학교춘천성심병원|강릉아산병원|원주세브란스기독병원/);
   }
 });
 
-test("serves the local MVP health and hospital fixtures", async () => {
-  const healthResponse = await fetchApplication(
-    new Request("http://localhost/api/local/health", { headers: { accept: "application/json" } }),
-  );
-  assert.equal(healthResponse.status, 200);
-  const health = await healthResponse.json();
+test("keeps local health and hospital fixtures in the browser bundle contract", () => {
+  const health = getLocalHealth();
   assert.equal(health.mode, "local-mock");
   assert.equal(health.services.agent.status, "available");
   assert.match(health.services.persistence.provider, /local-storage/);
 
-  const hospitalResponse = await fetchApplication(
-    new Request("http://localhost/api/local/hospitals", { headers: { accept: "application/json" } }),
-  );
-  assert.equal(hospitalResponse.status, 200);
-  const directory = await hospitalResponse.json();
+  const directory = getLocalHospitalDirectory();
   assert.equal(directory.source, "local_fixture");
   assert.equal(directory.hospitals.length, 3);
   assert.ok(directory.hospitals.some((hospital) => hospital.hospital_id === "H-GW-EMG-016"));
 });
 
-test("structures the example field statement through the local agent API", async () => {
-  const response = await fetchApplication(
-    new Request("http://localhost/api/local/agent", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        case_id: "GW-CARDIO-050",
-        updateId: "GW-CARDIO-050-U01",
-        transcript: "73세 여성 환자입니다. 주호소는 쥐어짜는 양상의 흉통입니다. 현재 의식은 AVPU A이고 목격자 진술과 함께 확인했습니다.",
-      }),
-    }),
-  );
-  assert.equal(response.status, 200);
-  const result = await response.json();
+test("structures the prepared field statement without a local HTTP route", async () => {
+  const reference = CARDIO_DEMO_PTT_UPDATES[0];
+  const result = await createLocalVoiceProposal({
+    case_id: "GW-CARDIO-050",
+    update_id: reference.id,
+    transcript: reference.transcript,
+  });
   assert.equal(result.pending_review, true);
   assert.equal(result.update_id, "GW-CARDIO-050-U01");
   assert.equal(result.proposed_updates.length, 3);

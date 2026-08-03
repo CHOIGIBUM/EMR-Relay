@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import Image from "next/image";
 import {
   Activity,
@@ -28,7 +28,6 @@ import {
   Send,
   ShieldCheck,
   UserRound,
-  Wifi,
   X,
 } from "lucide-react";
 import {
@@ -59,7 +58,7 @@ import { useAuth } from "@/components/auth/AuthProvider";
 import styles from "./MobileApp.module.css";
 
 type Tab = "field" | "patient" | "hospital" | "handoff";
-type VoiceMode = "listening" | "processing" | "review" | null;
+type VoiceMode = "listening" | "stopping" | "processing" | "review" | null;
 type HospitalCandidateStatus = "available" | "locked" | "pending" | "info" | "accepted" | "declined" | "confirmed";
 
 type VoiceResult = {
@@ -139,6 +138,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
   const [caseOpen, setCaseOpen] = useState(false);
   const [tab, setTab] = useState<Tab>(() => defaultTab(state.stage));
   const [voiceMode, setVoiceMode] = useState<VoiceMode>(null);
+  const [voiceStopReady, setVoiceStopReady] = useState(false);
   const [voiceResult, setVoiceResult] = useState<VoiceResult | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceConfirmError, setVoiceConfirmError] = useState<string | null>(null);
@@ -156,14 +156,20 @@ export default function MobileApp({ operational = false }: { operational?: boole
   const toastRef = useRef<number | null>(null);
   const timeFor = (...titles: string[]) =>
     [...state.events].reverse().find((event) => titles.includes(event.title))?.time ?? "—";
-  const latestEventTime = state.events.at(-1)?.time ?? "—";
   const voiceModeRef = useRef<VoiceMode>(null);
   const voiceRequestRef = useRef<AbortController | null>(null);
   const voiceRequestIdRef = useRef(0);
   const voiceStartPromiseRef = useRef<Promise<void> | null>(null);
+  const voicePressOriginRef = useRef<VoiceMode>(null);
+  const voiceLongPressRef = useRef(false);
+  const voiceLongPressTimerRef = useRef<number | null>(null);
+  const voiceStopArmTimerRef = useRef<number | null>(null);
+  const suppressVoiceClickRef = useRef(false);
   const transcribe = useTranscribePtt();
   const scriptedPtt = !operational || OPERATIONAL_CONFIG.scriptedPtt;
   const callingHospital = HOSPITALS.find((hospital) => hospital.id === callingHospitalId) ?? null;
+  const callerPhone = SCENARIO.callerPhone.replace(/[^\d+]/g, "");
+  const callerPhoneAvailable = /^\+?\d{8,}$/.test(callerPhone);
   const pttUpdates = useMemo(
     () => operational ? createOperationalPttUpdates(SCENARIO.sourceCaseId) : [...CARDIO_DEMO_PTT_UPDATES],
     [operational, SCENARIO.sourceCaseId],
@@ -187,6 +193,8 @@ export default function MobileApp({ operational = false }: { operational?: boole
 
   useEffect(() => () => {
     if (toastRef.current) window.clearTimeout(toastRef.current);
+    if (voiceLongPressTimerRef.current) window.clearTimeout(voiceLongPressTimerRef.current);
+    if (voiceStopArmTimerRef.current) window.clearTimeout(voiceStopArmTimerRef.current);
     voiceRequestIdRef.current += 1;
     voiceRequestRef.current?.abort();
     voiceRequestRef.current = null;
@@ -211,6 +219,13 @@ export default function MobileApp({ operational = false }: { operational?: boole
   };
 
   const cancelVoice = () => {
+    if (voiceLongPressTimerRef.current) window.clearTimeout(voiceLongPressTimerRef.current);
+    if (voiceStopArmTimerRef.current) window.clearTimeout(voiceStopArmTimerRef.current);
+    voiceLongPressTimerRef.current = null;
+    voiceStopArmTimerRef.current = null;
+    voiceLongPressRef.current = false;
+    voicePressOriginRef.current = null;
+    setVoiceStopReady(false);
     voiceRequestIdRef.current += 1;
     voiceRequestRef.current?.abort();
     voiceRequestRef.current = null;
@@ -234,7 +249,16 @@ export default function MobileApp({ operational = false }: { operational?: boole
     setAcceptedProposalIds([]);
     setSpokenTranscript("");
     setTranscriptIndex(0);
+    if (voiceStopArmTimerRef.current) window.clearTimeout(voiceStopArmTimerRef.current);
+    setVoiceStopReady(false);
     setVoicePhase("listening");
+    // The full-screen listening layer can appear beneath the same finger that
+    // started the gesture. Arm its stop button only after that opening gesture
+    // has safely ended, preventing an accidental immediate submission.
+    voiceStopArmTimerRef.current = window.setTimeout(() => {
+      voiceStopArmTimerRef.current = null;
+      setVoiceStopReady(true);
+    }, 700);
     if (!scriptedPtt) {
       voiceStartPromiseRef.current = transcribe.start(SCENARIO.sourceCaseId).catch((error: unknown) => {
         setVoiceError(error instanceof Error ? error.message : "음성 입력을 시작하지 못했습니다.");
@@ -253,7 +277,10 @@ export default function MobileApp({ operational = false }: { operational?: boole
     const controller = new AbortController();
     voiceRequestRef.current?.abort();
     voiceRequestRef.current = controller;
-    setVoicePhase("processing");
+    if (voiceStopArmTimerRef.current) window.clearTimeout(voiceStopArmTimerRef.current);
+    voiceStopArmTimerRef.current = null;
+    setVoiceStopReady(false);
+    setVoicePhase("stopping");
 
     void (async () => {
       try {
@@ -264,6 +291,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
           if (!transcript.trim()) throw new Error("인식된 문장이 없습니다. 마이크 가까이에서 다시 말씀해 주세요.");
         }
         setSpokenTranscript(transcript);
+        setVoicePhase("processing");
         const accessToken = await currentAccessToken();
         const result = await createVoiceProposal({
           caseId: SCENARIO.sourceCaseId,
@@ -370,41 +398,73 @@ export default function MobileApp({ operational = false }: { operational?: boole
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    if (voiceLongPressTimerRef.current) window.clearTimeout(voiceLongPressTimerRef.current);
+    voicePressOriginRef.current = voiceModeRef.current;
+    voiceLongPressRef.current = false;
+    suppressVoiceClickRef.current = true;
     event.currentTarget.setPointerCapture(event.pointerId);
-    beginVoice();
+    if (voiceModeRef.current === null) {
+      beginVoice();
+      voiceLongPressTimerRef.current = window.setTimeout(() => {
+        voiceLongPressRef.current = true;
+      }, 550);
+    }
   };
 
   const handlePointerUp = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    finishVoice();
+    const startedWhileListening = voicePressOriginRef.current === "listening";
+    const wasLongPress = voiceLongPressRef.current;
+    if (voiceLongPressTimerRef.current) window.clearTimeout(voiceLongPressTimerRef.current);
+    voiceLongPressTimerRef.current = null;
+    voiceLongPressRef.current = false;
+    voicePressOriginRef.current = null;
+    // A short first tap starts hands-free recording. A long press behaves like
+    // conventional PTT and stops when the user releases their finger.
+    if (startedWhileListening || wasLongPress) finishVoice();
   };
 
-  const handleVoiceKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if ((event.key === " " || event.key === "Enter") && voiceModeRef.current === null) {
-      event.preventDefault();
-      beginVoice();
-    }
+  const handlePointerCancel = () => {
+    if (voiceLongPressTimerRef.current) window.clearTimeout(voiceLongPressTimerRef.current);
+    voiceLongPressTimerRef.current = null;
+    voiceLongPressRef.current = false;
+    voicePressOriginRef.current = null;
+    // Mobile browsers can emit pointercancel when the full-screen listening
+    // layer appears. Keep recording in that case; the prominent stop control
+    // remains available and prevents an accidental zero-length submission.
   };
 
-  const handleVoiceKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key === " " || event.key === "Enter") {
-      event.preventDefault();
-      finishVoice();
+  const handleVoiceClick = () => {
+    // Every pointer gesture emits a trailing click. Consume that click so a
+    // short first tap does not immediately stop the recording it just began.
+    // Keyboard and assistive clicks do not pass through handlePointerDown and
+    // therefore retain the same tap-to-start/tap-to-stop contract.
+    if (suppressVoiceClickRef.current) {
+      suppressVoiceClickRef.current = false;
+      return;
     }
+    suppressVoiceClickRef.current = false;
+    if (voiceModeRef.current === "listening") finishVoice();
+    else if (voiceModeRef.current === null) beginVoice();
+  };
+
+  const returnToCaseList = () => {
+    if (voiceModeRef.current) cancelVoice();
+    setCallingHospitalId(null);
+    setShowReassessmentForm(false);
+    setTab(defaultTab(state.stage));
+    setCaseOpen(false);
   };
 
   const phoneHeader = (
-    <>
-      <div className={styles.deviceBar}>
-        <strong>{latestEventTime}</strong>
-        <span>●●●　Wi-Fi　▰</span>
-      </div>
-      <header className={styles.appHeader}>
-        <div className={styles.brandMark}><Image src="/ems-relay-icon.png" width={34} height={34} alt="" priority /></div>
-        <div className={styles.brandText}><strong>EMS Relay</strong><span>구급대 현장 기록</span></div>
-        <div className={styles.connection} data-state={sync.connection} role="status" aria-live="polite"><Wifi size={13} /><i /> {sync.pending ? "반영 중" : sync.mode === "remote" ? "연결됨" : "로컬"}</div>
-      </header>
-    </>
+    <header className={styles.appHeader}>
+      <button className={styles.brandHome} type="button" onClick={returnToCaseList} aria-label="출동 목록으로 이동">
+        <span className={styles.brandMark}><Image src="/ems-relay-icon.png" width={40} height={40} alt="EMS Relay" priority /></span>
+        <span className={styles.brandText}><strong>EMS Relay</strong><span>출동 목록</span></span>
+      </button>
+      <div className={styles.connection} data-state={sync.connection} role="status" aria-live="polite"><i /> {sync.pending ? "반영 중" : sync.mode === "remote" ? "실시간 연결" : "로컬"}</div>
+    </header>
   );
 
   const contextHeader = (title: string, back?: () => void) => (
@@ -420,8 +480,8 @@ export default function MobileApp({ operational = false }: { operational?: boole
       {contextHeader("출동 목록")}
       <main className={styles.phoneScroll}>
         <div className={styles.listLead}>
-          <div><span>현재 배정</span><h1>출동 사건 1건</h1><p>사건을 선택해 신고 내용을 확인하세요.</p></div>
-          <button aria-label="출동 목록 새로고침" onClick={() => notify("최신 배정 상태입니다.")}><RefreshCw size={18} /></button>
+          <div><span>{state.stage === "assigned" ? "현재 배정" : "진행 중"}</span><h1>출동 사건 1건</h1><p>사건을 선택하면 현재 업무 단계로 돌아갑니다.</p></div>
+          <button aria-label="출동 목록 새로고침" disabled={sync.pending} onClick={() => void sync.refresh()}><RefreshCw size={18} /></button>
         </div>
         <button className={styles.caseCard} onClick={() => setCaseOpen(true)}>
           <div className={styles.caseTop}>
@@ -431,7 +491,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
           <strong>흉통·식은땀</strong>
           <p>{SCENARIO.reportedPatient} · {SCENARIO.reportedComplaint}</p>
           <div className={styles.caseLocation}><MapPin size={15} /> {SCENARIO.locationShort}</div>
-          <div className={styles.caseFooter}><StatusBadge tone="amber">출동 배정</StatusBadge><span>{SCENARIO.unit}</span><ChevronRight size={19} /></div>
+          <div className={styles.caseFooter}><StatusBadge tone={state.stage === "complete" ? "green" : state.stage === "assigned" ? "amber" : "teal"}>{STAGE_LABEL[state.stage]}</StatusBadge><span>{SCENARIO.unit}</span><ChevronRight size={19} /></div>
         </button>
         <div className={styles.emptyList}><ClipboardCheck size={21} /><span>다른 배정 사건이 없습니다.</span></div>
       </main>
@@ -469,7 +529,9 @@ export default function MobileApp({ operational = false }: { operational?: boole
           <section className={styles.locationCard}>
             <div><MapPin size={18} /><strong>{SCENARIO.location}</strong></div>
             <p>{SCENARIO.access}</p>
-            <button onClick={() => notify("신고자에게 전화를 연결합니다.")}><Phone size={16} /> 신고자 전화</button>
+            {callerPhoneAvailable
+              ? <a href={`tel:${callerPhone}`}><Phone size={16} /> 신고자 전화</a>
+              : <span className={styles.phoneUnavailable}><Phone size={16} /> 신고자 전화번호 미확인</span>}
           </section>
 
           <div className={styles.timeStrip}>
@@ -479,6 +541,10 @@ export default function MobileApp({ operational = false }: { operational?: boole
             <i />
             <div data-state={enroute ? "current" : "waiting"}><span>3</span><strong>현장 도착</strong><time>도착 후 확인</time></div>
           </div>
+          <section className={styles.nextActionCard}>
+            <span>{enroute ? <MapPin size={20} /> : <Ambulance size={20} />}</span>
+            <div><small>다음 업무</small><strong>{enroute ? "현장 접근과 안전을 확인한 뒤 도착을 기록하세요" : "신고 위치와 진입 경로를 확인하고 출동을 시작하세요"}</strong><p>{enroute ? "현장 도착 기록 후 환자를 실제로 접촉한 시각을 별도로 남깁니다." : "버튼을 누른 시각이 출동 시작시각으로 사건 기록에 저장됩니다."}</p></div>
+          </section>
         </main>
         <div className={styles.stickyAction}>
           {!enroute ? (
@@ -510,6 +576,10 @@ export default function MobileApp({ operational = false }: { operational?: boole
           <div><MapPin size={18} /><span><strong>환자 위치</strong><small>{SCENARIO.access}</small></span></div>
           <div><UserRound size={18} /><span><strong>정보 제공자</strong><small>{SCENARIO.caller} 진술 확인</small></span></div>
         </section>
+        <section className={styles.nextActionCard}>
+          <span><UserRound size={20} /></span>
+          <div><small>다음 업무</small><strong>환자를 직접 확인한 순간에 ‘환자 접촉’을 누르세요</strong><p>접촉시각을 남긴 뒤 ABC·의식수준·최초 활력징후 순서로 평가합니다.</p></div>
+        </section>
         <div className={styles.noticeBox}><Info size={18} /><span><strong>현장 도착과 환자 접촉은 다릅니다.</strong><small>환자를 실제로 확인한 뒤 접촉 버튼을 눌러주세요.</small></span></div>
       </main>
       <div className={styles.stickyAction}>
@@ -523,6 +593,10 @@ export default function MobileApp({ operational = false }: { operational?: boole
 
   const renderFieldAssessment = () => (
     <>
+      <section className={styles.contactContext}>
+        <span><UserRound size={21} /></span>
+        <div><small>환자 접촉 {timeFor("환자 접촉")}</small><strong>첫 평가를 시작하세요</strong><p>ABC 확인 → AVPU → 활력징후 측정 → 필요한 내용을 음성 또는 직접 입력</p></div>
+      </section>
       <section className={styles.patientIdentity}>
         <div><span>현장에서 확인한 환자</span><h1>{SCENARIO.patient}</h1><p>{SCENARIO.living}</p></div>
         <SourceTag tone="confirmed">구급대 확인</SourceTag>
@@ -580,12 +654,12 @@ export default function MobileApp({ operational = false }: { operational?: boole
         disabled={!nextPttUpdate}
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
-        onPointerCancel={finishVoice}
-        onKeyDown={handleVoiceKeyDown}
-        onKeyUp={handleVoiceKeyUp}
+        onPointerCancel={handlePointerCancel}
+        onClick={handleVoiceClick}
+        aria-label={nextPttUpdate ? "음성 입력 시작. 탭하여 시작한 뒤 화면의 종료 버튼을 누르거나, 누른 채 말하고 손을 떼어 종료합니다." : "현장 음성 확인 완료"}
       >
         <span><Mic size={24} /></span>
-        <div><strong>{nextPttUpdate ? "누르고 말하기" : "현장 음성 확인 완료"}</strong><small>{nextPttUpdate ? `${nextPttUpdate.sequence}. ${nextPttUpdate.title}` : "이송 중 재평가에서 다시 사용할 수 있습니다"}</small></div>
+        <div><strong>{nextPttUpdate ? "음성 입력 시작" : "현장 음성 확인 완료"}</strong><small>{nextPttUpdate ? `${nextPttUpdate.sequence}. ${nextPttUpdate.title} · 탭하여 시작 또는 길게 누르기` : "이송 중 재평가에서 다시 사용할 수 있습니다"}</small></div>
       </button>
 
       <button
@@ -754,7 +828,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
                     )}
                     {["pending", "info", "accepted", "declined", "confirmed"].includes(candidateState) && (
                       <button className={styles.candidateSecondary} onClick={() => setCallingHospitalId(hospital.id)}>
-                        <Phone size={16} /> 수용 문의 전화
+                        <Phone size={16} /> 통화 결과 기록
                       </button>
                     )}
                     {candidateState === "info" && (
@@ -836,10 +910,10 @@ export default function MobileApp({ operational = false }: { operational?: boole
               className={styles.pttButton}
               onPointerDown={handlePointerDown}
               onPointerUp={handlePointerUp}
-              onPointerCancel={finishVoice}
-              onKeyDown={handleVoiceKeyDown}
-              onKeyUp={handleVoiceKeyUp}
-            ><Mic size={18} /> 재평가 누르고 말하기</button>
+              onPointerCancel={handlePointerCancel}
+              onClick={handleVoiceClick}
+              aria-label="재평가 음성 입력 시작. 탭하여 시작한 뒤 화면의 종료 버튼을 누르거나, 누른 채 말하고 손을 떼어 종료합니다."
+            ><Mic size={18} /> 재평가 음성 입력</button>
             <button onClick={() => setShowReassessmentForm((current) => !current)}><RefreshCw size={17} /> 측정값 직접 입력</button>
             {showReassessmentForm && (
               <div className={styles.reassessmentForm}>
@@ -925,7 +999,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
   );
 
   let body: React.ReactNode;
-  if (state.stage === "assigned" && !caseOpen) body = renderCaseList();
+  if (!caseOpen) body = renderCaseList();
   else if (state.stage === "assigned" || state.stage === "enroute") body = renderDispatch();
   else if (state.stage === "scene-arrived") body = renderArrival();
   else body = (
@@ -944,17 +1018,17 @@ export default function MobileApp({ operational = false }: { operational?: boole
         {toast && <div className={styles.toast} role="status"><CheckCircle2 size={18} /> {toast}</div>}
 
         {callingHospital && (
-          <div className={styles.callOverlay} role="dialog" aria-modal="true" aria-label={`${callingHospital.name} 전화 연결`}>
+          <div className={styles.callOverlay} role="dialog" aria-modal="true" aria-label={`${callingHospital.name} 통화 결과 기록`}>
             <section className={styles.callSheet}>
               <button className={styles.callClose} aria-label="전화 연결 닫기" onClick={() => setCallingHospitalId(null)}><X size={18} /></button>
               <span className={styles.callIcon}><Phone size={24} /></span>
-              <small>수용 문의 전화</small>
+              <small>병원 통화 결과 기록</small>
               <h2>{callingHospital.name}</h2>
               <div className={styles.callSummary}>
                 <span><strong>{SCENARIO.patient}</strong><small>{SCENARIO.chiefComplaint}</small></span>
                 <span><strong>발생 {SCENARIO.onset}</strong><small>{SCENARIO.symptoms.join(" · ")}</small></span>
               </div>
-              <p className={styles.callHint}><AlertTriangle size={15} /> 전화 연결만으로 수용 확정이 아닙니다. 병원의 수용 가능 회신을 별도로 확인하세요.</p>
+              <p className={styles.callHint}><AlertTriangle size={15} /> 이 화면은 전화를 연결하지 않습니다. 별도 통화 후 결과만 기록하며, 수용 가능 회신은 병원 화면에서 확인합니다.</p>
               <div className={styles.callResults}>
                 <button onClick={() => {
                   dispatch({ type: "CALL_HOSPITAL", hospitalId: callingHospital.id, result: "응답 없음" });
@@ -972,19 +1046,23 @@ export default function MobileApp({ operational = false }: { operational?: boole
         )}
 
         {voiceMode && (
-          <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록" aria-busy={voiceMode === "processing"} onPointerUp={() => { if (voiceModeRef.current === "listening") finishVoice(); }} onPointerCancel={() => { if (voiceModeRef.current === "listening") finishVoice(); }}>
+          <div className={styles.voiceOverlay} role="dialog" aria-modal="true" aria-label="음성으로 환자 상태 기록" aria-busy={voiceMode === "stopping" || voiceMode === "processing"}>
             <button className={styles.voiceClose} aria-label="음성 입력 닫기" onClick={cancelVoice}><X size={19} /></button>
             {voiceMode === "listening" ? (
               <div className={styles.listeningPanel}>
                 <span className={styles.micPulse}><Mic size={27} /></span>
-                <h2>듣고 있습니다</h2>
-                <p>환자를 보면서 평소 말하듯 말씀하세요.</p>
+                <h2>{!scriptedPtt && transcribe.state === "starting" ? "마이크를 연결하고 있습니다" : "듣고 있습니다"}</h2>
+                <p>{!scriptedPtt && transcribe.state === "starting" ? "연결되면 바로 말씀하실 수 있습니다." : "환자를 보면서 평소 말하듯 말씀하세요."}</p>
                 <div className={styles.liveTranscript}>{scriptedPtt ? transcriptSteps[transcriptIndex] : transcribe.transcript || "음성을 인식하고 있습니다…"}<i /></div>
-                <button
-                  onPointerUp={handlePointerUp}
-                  onPointerCancel={finishVoice}
-                  onKeyUp={handleVoiceKeyUp}
-                >손을 떼면 내용 확인</button>
+                <button disabled={!voiceStopReady} onClick={finishVoice}>{voiceStopReady ? "입력 종료하고 내용 확인" : "음성 입력을 시작하고 있습니다"}</button>
+              </div>
+            ) : voiceMode === "stopping" ? (
+              <div className={styles.listeningPanel} role="status" aria-live="polite">
+                <span className={styles.micPulse}><Mic size={27} /></span>
+                <h2>음성 입력을 마치고 있습니다</h2>
+                <p>마지막 문장이 빠지지 않도록 인식 결과를 확인합니다.</p>
+                <div className={styles.liveTranscript}>{transcribe.transcript || spokenTranscript || "마지막 음성을 확인하고 있습니다…"}</div>
+                <button onClick={cancelVoice}>입력 취소</button>
               </div>
             ) : voiceMode === "processing" ? (
               <div className={styles.listeningPanel} role="status" aria-live="polite">

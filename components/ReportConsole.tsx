@@ -12,7 +12,6 @@ import {
   ChevronRight,
   ClipboardCheck,
   Clock3,
-  FileCheck2,
   FileText,
   HeartPulse,
   History,
@@ -303,47 +302,14 @@ export default function ReportConsole() {
 
   return (
     <section className={styles.console} aria-label="EMS Relay 구급활동 보고서 검토 화면">
-      <header className={styles.topbar}>
-        <div className={styles.brand}>
-          <span className={styles.brandMark}><FileCheck2 size={21} /></span>
-          <div>
-            <strong>EMS Relay</strong>
-            <small>구급활동 기록 검토</small>
-          </div>
-        </div>
-
-        <nav className={styles.topnav} aria-label="보고서 업무 단계">
-          <span><CheckCircle2 size={15} /> 환자 인계</span>
-          <ChevronRight size={15} />
-          <strong>보고서 검토</strong>
-          <ChevronRight size={15} />
-          <span data-muted="true">사건 종료</span>
-        </nav>
-
-        <div className={styles.account}>
-          <span className={styles.connected}><i /> 연결됨</span>
-          <span className={styles.avatar}><UserRound size={17} /></span>
-          <div><strong>{SCENARIO.unit}</strong><small>구급대원</small></div>
-        </div>
-      </header>
-
       <div className={styles.subbar}>
-        <button type="button" className={styles.backButton} onClick={() => notify("인계 완료 사건으로 돌아갑니다.")}>
-          <span>‹</span> 인계 완료 사건
-        </button>
         <div className={styles.caseHeading}>
+          <span className={styles.pageLabel}>구급활동 기록 검토</span>
           <div><strong>{report.caseId}</strong><StatusPill tone={reportStatus === "confirmed" ? "green" : "teal"}>{statusLabel}</StatusPill></div>
           <span><Ambulance size={14} /> {SCENARIO.unit} <i /> 마지막 기록 {report.latestTime}</span>
         </div>
         <div className={styles.headerActions}>
           <button type="button" onClick={() => window.print()}><Printer size={16} /> 인쇄 미리보기</button>
-          <button
-            type="button"
-            onClick={() => {
-              setReportStatus((current) => current === "confirmed" ? current : "reviewing");
-              notify("현재 검토 상태를 저장했습니다.");
-            }}
-          ><Save size={16} /> 임시 저장</button>
         </div>
       </div>
 
@@ -444,7 +410,6 @@ export default function ReportConsole() {
                           {done ? <Check size={15} /> : null}
                         </button>
                         <div><span>{item.title}</span><strong>{value}</strong><small>{item.helper}</small></div>
-                        <button type="button" className={styles.sourceButton} onClick={() => notify(`${item.title}의 원 기록을 표시했습니다.`)}>원 기록</button>
                       </article>
                     );
                   })}
@@ -504,7 +469,6 @@ export default function ReportConsole() {
           </div>
 
           <div className={styles.panelActions}>
-            <button type="button" className={styles.secondaryAction} onClick={() => notify("보고서 초안을 임시 저장했습니다.")}><Save size={16} /> 초안 저장</button>
             <button
               type="button"
               className={styles.primaryAction}

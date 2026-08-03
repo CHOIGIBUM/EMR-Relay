@@ -1,6 +1,6 @@
 # EMS Relay 구현 보고서
 
-작성 기준: 2026-08-03 · AWS 계정 `462993243992` · 리전 `us-west-2`
+작성 기준: 2026-08-04 · AWS 계정 `462993243992` · 리전 `us-west-2`
 
 ## 1. 구현 결과 요약
 
@@ -20,15 +20,15 @@ AI가 진단, 병원 추천 점수, 수용 가능성 예측, 최종 이송 결�
 
 ## 2. 배포 주소와 접근 정책
 
-- 서비스: <https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site>
-- 현재 접근 정책: Codex Sites `private/owner-only`
+- 서비스: <https://main.d2edch3bt6kxej.amplifyapp.com>
+- 프론트 호스팅: AWS Amplify Hosting `main` production branch
 - 모바일 화면: `/paramedic`
 - 상황실 화면: `/control`
 - 병원 화면: `/hospital`
 - 보고서 화면: `/reports`
 - 로그인: `/login`
 
-이 링크는 서버리스로 배포되어 있으나 현재 소유자 전용이다. 팀 공유 또는 외부 시연에는 Sites 접근 권한을 별도로 열거나 다른 공개 호스팅 대상으로 재배포해야 한다.
+Amplify 주소는 외부에서 열 수 있지만 역할 화면과 업무 API는 Cognito PKCE 로그인, JWT 역할, 사건·병원 객체 권한 검사를 모두 통과해야 한다.
 
 운영 시연 사건은 `GW-CARDIO-051`을 사용한다. 이 사건은 `ASSIGNED v1`, 임상 사실 0건, 병원 문의 0건인 깨끗한 시작 상태다. `GW-CARDIO-050`은 전체 파이프라인 검증을 완료한 보관용 E2E 사건이며, 후보 병원 제한 수정 전에 생성된 이력이 있으므로 UI 시연에는 사용하지 않는다.
 
@@ -43,7 +43,7 @@ flowchart LR
     R["보고서 웹"]
   end
 
-  S["Codex Sites\nNext.js/Vinext"]
+  S["AWS Amplify Hosting\nNext.js Static Export"]
   A["Amazon Cognito\nAuthorization Code + PKCE"]
 
   subgraph AWS["AWS us-west-2"]
@@ -216,17 +216,17 @@ Lambda는 Node.js 22, arm64, 512 MB, 30초로 구성했다. DynamoDB는 on-deman
 | 프론트 TypeScript | 통과 |
 | 프론트 ESLint | 통과 |
 | 프론트 의존성 보안 검사 | `npm audit` 취약점 0건 |
-| 백엔드 테스트 | 24/24 통과 |
+| 백엔드 테스트 | 25/25 통과 |
 | SAM template lint | 통과 |
-| AgentCore 테스트 | 14/14 통과 |
-| AgentCore coverage | 88.27% · 기준 85% 이상 |
+| AgentCore 테스트 | 17/17 통과 |
+| AgentCore coverage | 88.35% · 기준 85% 이상 |
 | AgentCore Ruff | 통과 |
 
 프론트 테스트에는 Cognito state·nonce, 안전한 return path, 90 ms PCM batch와 final flush, 역할 화면, 전체 상태머신, 병원 회신 분기, 빈 운영 화면, 미확인값 비추정이 포함된다. 백엔드 테스트에는 JWT 역할, optimistic transaction, NMC allowlist·HIRA enrichment, AgentCore 비권위 응답, 보고서 접근 제한, FHIR idempotent Bundle, 별지 제5호 항목 순서가 포함된다.
 
 ### 7.2 실제 클라우드 E2E 증거
 
-- `/health`: `status=ok`, `agentRuntimeConfigured=true`, `directBedrockFallbackEnabled=false`, `audioStorage=disabled`.
+- `/health`: `status=ok`, `agent.agentRuntimeConfigured=true`, `agent.directBedrockFallbackEnabled=false`, `audioStorage=disabled`.
 - AgentCore 실호출: `PENDING_REVIEW`, human review 필수, authoritative false, 3 agent, 18 tool calls, PHI trace false.
 - 병원 참고정보 실호출: 속초의료원은 `NMC+HIRA+KAKAO`, 약 1.8 km·6분으로 반환됐고 수용 상태는 `not_provided`였다.
 - WebSocket probe: TLS `wss` 연결 성공, 일회용 ticket 소비 성공.
@@ -242,13 +242,13 @@ Cloud seed는 배포된 Lambda에 API Gateway 형식의 역할 claim을 넣어 w
 
 ### Kakao JavaScript 지도 도메인
 
-Kakao Mobility REST 길찾기는 서버에서 실제 호출된다. 브라우저 Kakao Map JavaScript SDK도 Kakao Developers 콘솔의 JavaScript 키에 아래 배포 도메인을 등록했다.
+Kakao Mobility REST 길찾기는 서버에서 실제 호출된다. 브라우저 Kakao Map JavaScript SDK의 허용 도메인도 Kakao Developers에서 아래 Amplify 주소로 교체했다.
 
 ```text
-https://ems-relay-gangwon-mvp.gsgxgsbs.chatgpt.site
+https://main.d2edch3bt6kxej.amplifyapp.com
 ```
 
-등록 시각은 2026-08-03 23:03 KST이다. 프론트에는 도메인 제한이 적용된 JavaScript 키만 포함하며, Kakao REST 키와 Admin 키는 AWS Secrets Manager에만 보관한다.
+해당 출처로 SDK를 직접 호출해 HTTP 200과 도메인 불일치 오류 해소를 확인했다. 프론트에는 도메인 제한이 적용되는 JavaScript 키만 포함하며, Kakao REST 키와 Admin 키는 AWS Secrets Manager에만 보관한다.
 
 ## 9. HealthLake 비용과 종료 계획
 

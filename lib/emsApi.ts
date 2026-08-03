@@ -1,4 +1,9 @@
 import type { CardioPttProposal, CardioPttUpdate } from "@/lib/cardioDemoData";
+import {
+  createLocalVoiceProposal,
+  getLocalHospitalDirectory,
+  LocalDemoApiError,
+} from "@/lib/localDemoApi";
 import type {
   CreateVoiceProposalRequest,
   ConfirmVoiceProposalRequest,
@@ -26,13 +31,9 @@ type ApiMode = "local" | "remote";
 const legacyBase = process.env.NEXT_PUBLIC_EMS_API_BASE?.trim() ?? "";
 const configuredMode = process.env.NEXT_PUBLIC_EMS_API_MODE?.trim().toLowerCase();
 const configuredRemoteBase = process.env.NEXT_PUBLIC_EMS_BACKEND_URL?.trim() ?? "";
-const configuredLocalBase = process.env.NEXT_PUBLIC_EMS_LOCAL_API_BASE?.trim() ?? "";
 
 const remoteBase = stripTrailingSlash(
   configuredRemoteBase || (legacyBase && !legacyBase.startsWith("/") ? legacyBase : ""),
-);
-const localBase = stripTrailingSlash(
-  configuredLocalBase || (legacyBase.startsWith("/") ? legacyBase : "/api/local"),
 );
 const mode: ApiMode = configuredMode === "remote"
   ? "remote"
@@ -47,7 +48,6 @@ const reviewerId = process.env.NEXT_PUBLIC_EMS_REVIEWER_ID?.trim() ?? "";
 export const EMS_API_CONFIG = Object.freeze({
   mode,
   remoteBase,
-  localBase,
   allowLocalFallback,
   reviewerId,
 });
@@ -131,32 +131,44 @@ function canUseFallback(error: unknown) {
 
 async function requestWithPolicy<T>({
   remotePath,
-  localPath,
+  localRequest,
   init,
   options,
   parse,
 }: {
   remotePath: string;
-  localPath: string;
+  localRequest: () => Promise<unknown> | unknown;
   init: RequestInit;
   options?: RequestOptions;
   parse: (payload: unknown) => T;
 }): Promise<EmsApiResult<T>> {
   const request = async (transport: EmsApiTransport): Promise<EmsApiResult<T>> => {
-    const base = transport === "remote" ? remoteBase : localBase;
-    if (!base) {
-      throw new EmsApiError(
-        transport === "remote"
-          ? "NEXT_PUBLIC_EMS_BACKEND_URL이 설정되지 않았습니다."
-          : "로컬 API 경로가 설정되지 않았습니다.",
-        { code: "API_BASE_NOT_CONFIGURED" },
-      );
+    let payload: unknown;
+    if (transport === "remote") {
+      if (!remoteBase) {
+        throw new EmsApiError("NEXT_PUBLIC_EMS_BACKEND_URL이 설정되지 않았습니다.", {
+          code: "API_BASE_NOT_CONFIGURED",
+        });
+      }
+      payload = await fetchJson(joinUrl(remoteBase, remotePath), {
+        ...init,
+        signal: options?.signal,
+      }, options?.accessToken);
+    } else {
+      if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+      try {
+        payload = await localRequest();
+      } catch (error) {
+        if (error instanceof LocalDemoApiError) {
+          throw new EmsApiError(error.message, {
+            status: error.status,
+            code: error.code,
+            cause: error,
+          });
+        }
+        throw error;
+      }
     }
-    const path = transport === "remote" ? remotePath : localPath;
-    const payload = await fetchJson(joinUrl(base, path), {
-      ...init,
-      signal: options?.signal,
-    }, options?.accessToken);
     return { data: parse(payload), transport, usedLocalFallback: false };
   };
 
@@ -376,7 +388,7 @@ export async function createVoiceProposal(
   };
   return requestWithPolicy({
     remotePath: `cases/${encodeURIComponent(caseId)}/voice-updates/proposals`,
-    localPath: "agent",
+    localRequest: () => createLocalVoiceProposal(requestBody),
     init: { method: "POST", body: JSON.stringify(requestBody) },
     options,
     parse: parseVoiceProposalResponse,
@@ -394,7 +406,7 @@ export async function getHospitalDirectory(
   });
   return requestWithPolicy({
     remotePath: `hospitals?${params.toString()}`,
-    localPath: `hospitals?${params.toString()}`,
+    localRequest: getLocalHospitalDirectory,
     init: { method: "GET" },
     options,
     parse: parseHospitalDirectory,

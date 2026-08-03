@@ -162,6 +162,12 @@ async function bodyToText(body: unknown) {
   throw new AgentOutputError("AgentCore 응답 본문을 읽을 수 없습니다.");
 }
 
+export function createAgentRuntimeSessionId() {
+  // AgentCore includes this identifier in its managed log-stream name.
+  // Keep it opaque so case identifiers never become log metadata.
+  return `ems-relay-${randomUUID()}`;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -257,7 +263,7 @@ async function invokeAgentCore(request: AgentRequest, state: ConfirmedState) {
       metadata: {},
     },
   }));
-  const runtimeSessionId = `${request.caseId}-${randomUUID()}`.replace(/[^A-Za-z0-9_-]/g, "-").slice(0, 100);
+  const runtimeSessionId = createAgentRuntimeSessionId();
   const response = await agentCore.send(new InvokeAgentRuntimeCommand({
     agentRuntimeArn: AGENT_RUNTIME_ARN,
     ...(AGENT_RUNTIME_QUALIFIER ? { qualifier: AGENT_RUNTIME_QUALIFIER } : {}),

@@ -1,27 +1,41 @@
 import {
+  CARDIO_DEMO_HOSPITALS,
   CARDIO_DEMO_PTT_UPDATES,
   CARDIO_DEMO_VITALS,
   type CardioPttProposal,
   type CardioVitalSet,
 } from "@/lib/cardioDemoData";
 import type {
+  HospitalDirectoryResponse,
   VoiceFactStatus,
   VoiceProposalResponse,
   VoiceProposalSource,
   VoiceProposalWarning,
   VoiceProposedUpdate,
 } from "@/lib/emsApiTypes";
+import type { LocalHealthResponse } from "@/lib/localDemoTypes";
 
-type AgentRequest = {
+export type LocalVoiceProposalRequest = {
   case_id?: unknown;
   update_id?: unknown;
   transcript?: unknown;
   locale?: unknown;
   client_event_id?: unknown;
-  // Temporary compatibility with the first local prototype.
   incidentId?: unknown;
   updateId?: unknown;
 };
+
+export class LocalDemoApiError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = "LocalDemoApiError";
+    this.status = status;
+    this.code = code;
+  }
+}
 
 const fieldPaths: Record<string, string> = {
   "U01-age": "patient.age_years_and_sex",
@@ -38,11 +52,6 @@ const fieldPaths: Record<string, string> = {
   "U04-outcome": "reassessment.outcome",
   "U04-impression": "clinical.prehospital_impression",
 };
-
-function normalizeBody(value: unknown): AgentRequest | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as AgentRequest;
-}
 
 function sourceKind(label: string): VoiceProposalSource["kind"] {
   if (label.includes("측정")) return "device_measurement";
@@ -106,50 +115,39 @@ function warningFor(proposal: CardioPttProposal, path: string): VoiceProposalWar
   return null;
 }
 
-export async function POST(request: Request): Promise<Response> {
-  let body: AgentRequest | null = null;
-  try {
-    body = normalizeBody(await request.json());
-  } catch {
-    body = null;
-  }
-
-  const caseIdValue = body?.case_id ?? body?.incidentId;
-  const updateIdValue = body?.update_id ?? body?.updateId;
+/**
+ * Browser-only scripted fixture used by the explicit demo workflow. It is not
+ * a clinical parser and never maps an arbitrary utterance to prepared facts.
+ */
+export async function createLocalVoiceProposal(
+  body: LocalVoiceProposalRequest,
+): Promise<VoiceProposalResponse> {
+  const caseIdValue = body.case_id ?? body.incidentId;
+  const updateIdValue = body.update_id ?? body.updateId;
   const caseId = typeof caseIdValue === "string" ? caseIdValue.trim() : "";
   const updateId = typeof updateIdValue === "string" ? updateIdValue.trim() : "";
-  const transcript = typeof body?.transcript === "string" ? body.transcript.normalize("NFKC").trim() : "";
+  const transcript = typeof body.transcript === "string" ? body.transcript.normalize("NFKC").trim() : "";
+
   if (!caseId || !updateId || !transcript || transcript.length > 4_000) {
-    return Response.json(
-      { error: "invalid_voice_update", message: "case_id, update_id와 1~4,000자의 transcript가 필요합니다." },
-      { status: 400 },
+    throw new LocalDemoApiError(
+      400,
+      "invalid_voice_update",
+      "case_id, update_id와 1~4,000자의 transcript가 필요합니다.",
     );
   }
-
   if (caseId !== "GW-CARDIO-050") {
-    return Response.json(
-      { error: "unknown_case", message: "로컬 검증 계약에 등록되지 않은 사건입니다." },
-      { status: 404 },
-    );
+    throw new LocalDemoApiError(404, "unknown_case", "로컬 검증 계약에 등록되지 않은 사건입니다.");
   }
 
   const reference = CARDIO_DEMO_PTT_UPDATES.find((update) => update.id === updateId);
   if (!reference) {
-    return Response.json(
-      { error: "unknown_update", message: "로컬 검증 계약에 등록되지 않은 음성 갱신입니다." },
-      { status: 404 },
-    );
+    throw new LocalDemoApiError(404, "unknown_update", "로컬 검증 계약에 등록되지 않은 음성 갱신입니다.");
   }
-
-  // Local mode is an explicit scripted contract test, not a clinical parser.
-  // A different utterance must never receive the fixture's clinical values.
   if (transcript !== reference.transcript) {
-    return Response.json(
-      {
-        error: "unsupported_local_transcript",
-        message: "현재 로컬 모드는 준비된 인식 문장만 검증합니다. 실제 발화는 원격 Agent 백엔드에 연결하세요.",
-      },
-      { status: 422 },
+    throw new LocalDemoApiError(
+      422,
+      "unsupported_local_transcript",
+      "현재 로컬 모드는 준비된 인식 문장만 검증합니다. 실제 발화는 원격 Agent 백엔드에 연결하세요.",
     );
   }
 
@@ -180,8 +178,8 @@ export async function POST(request: Request): Promise<Response> {
     + reference.proposals.filter((proposal) => proposal.status === "pending_review").length;
 
   await new Promise<void>((resolve) => setTimeout(resolve, 420));
-  const response: VoiceProposalResponse = {
-    request_id: typeof body?.client_event_id === "string" && body.client_event_id.trim()
+  return {
+    request_id: typeof body.client_event_id === "string" && body.client_event_id.trim()
       ? body.client_event_id.trim()
       : crypto.randomUUID(),
     case_id: caseId,
@@ -203,5 +201,36 @@ export async function POST(request: Request): Promise<Response> {
     proposal_set_id: `LOCAL-${caseId}-${reference.id}`,
     base_version: 0,
   };
-  return Response.json(response, { headers: { "Cache-Control": "no-store" } });
+}
+
+export function getLocalHospitalDirectory(): HospitalDirectoryResponse {
+  return {
+    hospitals: CARDIO_DEMO_HOSPITALS.map((hospital) => ({
+      hospital_id: hospital.id,
+      display_name: hospital.alias,
+      care_level: hospital.careLevelLabel,
+      region_label: hospital.regionLabel,
+      distance_km: hospital.distanceKm,
+      eta_minutes: hospital.etaMinutes,
+      reference_capabilities: [...hospital.referenceCapabilities],
+    })),
+    reference_at: new Date().toISOString(),
+    source: "local_fixture",
+  };
+}
+
+export function getLocalHealth(): LocalHealthResponse {
+  return {
+    status: "ok",
+    mode: "local-mock",
+    services: {
+      agent: { status: "available", provider: "scripted-proposal-contract" },
+      hospitals: { status: "available", provider: "static-reference-contract" },
+      persistence: {
+        status: "available",
+        provider: "browser-local-storage-and-broadcast-channel",
+      },
+    },
+    checkedAt: new Date().toISOString(),
+  };
 }

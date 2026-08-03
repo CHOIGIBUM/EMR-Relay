@@ -2,7 +2,7 @@
   "name": "EMS Relay",
   "short_name": "EMS Relay",
   "description": "응급환자 정보 연계",
-  "start_url": "/paramedic",
+  "start_url": "/paramedic/",
   "display": "standalone",
   "background_color": "#f4f8fa",
   "theme_color": "#08273f",

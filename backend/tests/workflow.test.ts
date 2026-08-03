@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
-import { normalizeAgentCoreResponse, AgentOutputError } from "../src/agent.js";
+import { AgentOutputError, createAgentRuntimeSessionId, normalizeAgentCoreResponse } from "../src/agent.js";
 import { authorizeCommand, principalFromEvent } from "../src/auth.js";
 import { mapFinalizedReportToFhir } from "../src/fhir.js";
 import { handler } from "../src/handler.js";
@@ -139,6 +139,12 @@ test("rejects an authoritative AgentCore response", () => {
     proposal: { status: "CONFIRMED", requiresHumanReview: false, authoritative: true, changes: [] },
     evidence: [], unknowns: [], warnings: [],
   }, { caseId: "GW-CARDIO-050", transcript: "상태 확인", source: "ptt", requestedBy: "paramedic-01" }, { caseId: "GW-CARDIO-050", version: 0, facts: {} }), AgentOutputError);
+});
+
+test("uses an opaque AgentCore runtime session id without the case id", () => {
+  const sessionId = createAgentRuntimeSessionId();
+  assert.match(sessionId, /^ems-relay-[0-9a-f-]{36}$/);
+  assert.doesNotMatch(sessionId, /GW-CARDIO|CASE/i);
 });
 
 function finalizedReport(): AmbulanceActivityReport {
