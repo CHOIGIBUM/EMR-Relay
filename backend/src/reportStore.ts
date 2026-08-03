@@ -86,9 +86,17 @@ export async function buildAnnex5Draft(caseId: string): Promise<Annex5ReportDraf
       chiefComplaint: factValue(facts, "symptoms.chiefComplaint"),
       onsetAt: factValue(facts, "symptoms.onsetAt"),
       chestPain: factValue(facts, "symptoms.chestPain"),
+      chestPainNrs: factValue(facts, "symptoms.chestPainNrs"),
+      chestPainQuality: factValue(facts, "symptoms.chestPainQuality"),
+      chestPainRadiation: factValue(facts, "symptoms.chestPainRadiation"),
       associatedSymptoms: factValue(facts, "symptoms.associated"),
     },
     patientAssessment: {
+      primarySurvey: {
+        airway: factValue(facts, "assessment.airway"),
+        breathing: factValue(facts, "assessment.breathing"),
+        circulation: factValue(facts, "assessment.circulation"),
+      },
       consciousness: { avpu: factValue(facts, "consciousness.avpu") },
       pupils: {},
       vitalSigns: [
@@ -172,6 +180,12 @@ export async function buildAnnex5Draft(caseId: string): Promise<Annex5ReportDraf
     ["patientIdentity.sex", draft.patientIdentity.sex],
     ["symptomsAndOccurrence.chiefComplaint", draft.symptomsAndOccurrence.chiefComplaint],
     ["symptomsAndOccurrence.onsetAt", draft.symptomsAndOccurrence.onsetAt],
+    ["symptomsAndOccurrence.chestPainNrs", draft.symptomsAndOccurrence.chestPainNrs],
+    ["symptomsAndOccurrence.chestPainQuality", draft.symptomsAndOccurrence.chestPainQuality],
+    ["symptomsAndOccurrence.chestPainRadiation", draft.symptomsAndOccurrence.chestPainRadiation],
+    ["patientAssessment.primarySurvey.airway", draft.patientAssessment.primarySurvey?.airway],
+    ["patientAssessment.primarySurvey.breathing", draft.patientAssessment.primarySurvey?.breathing],
+    ["patientAssessment.primarySurvey.circulation", draft.patientAssessment.primarySurvey?.circulation],
     ["patientAssessment.consciousness.avpu", draft.patientAssessment.consciousness.avpu],
     ["patientAssessment.vitalSigns[0].measuredAt", draft.patientAssessment.vitalSigns[0]?.measuredAt],
     ["patientAssessment.vitalSigns[0].systolicBp", draft.patientAssessment.vitalSigns[0]?.systolicBp],
@@ -288,6 +302,7 @@ ${reportRow([["주소", draft.patientIdentity.address, 3], ["발생 장소", dra
 ${reportRow([["주호소", draft.symptomsAndOccurrence.chiefComplaint, 3], ["발생 시각", draft.symptomsAndOccurrence.onsetAt, 1]])}
 ${reportRow([["동반 증상", draft.symptomsAndOccurrence.associatedSymptoms, 3], ["흉통", draft.symptomsAndOccurrence.chestPain, 1]])}
 <tr class="section"><th colspan="8">환자평가</th></tr>
+${reportRow([["A 기도", draft.patientAssessment.primarySurvey?.airway], ["B 호흡", draft.patientAssessment.primarySurvey?.breathing], ["C 순환", draft.patientAssessment.primarySurvey?.circulation], ["흉통", `NRS ${reportValue(draft.symptomsAndOccurrence.chestPainNrs)} · ${reportValue(draft.symptomsAndOccurrence.chestPainQuality)} · 방사통 ${reportValue(draft.symptomsAndOccurrence.chestPainRadiation)}`]])}
 ${reportRow([["의식상태 1차", draft.patientAssessment.consciousness.avpu], ["의식상태 2차", secondVitals.avpu], ["동공", draft.patientAssessment.pupils], ["환자분류", draft.patientAssessment.severityLevel]])}
 ${reportRow([["1차 활력", `${reportValue(firstVitals.measuredAt)} · BP ${reportValue(firstVitals.systolicBp)}/${reportValue(firstVitals.diastolicBp)} mmHg · PR ${reportValue(firstVitals.pulse)}회/분 · RR ${reportValue(firstVitals.respiratoryRate)}회/분 · SpO₂ ${reportValue(firstVitals.spo2)}% · BT ${reportValue(firstVitals.temperature)}℃ · BST ${reportValue(firstVitals.glucose)} mg/dL`, 7]])}
 ${reportRow([["2차 활력", `${reportValue(secondVitals.measuredAt)} · BP ${reportValue(secondVitals.systolicBp)}/${reportValue(secondVitals.diastolicBp)} mmHg · PR ${reportValue(secondVitals.pulse)}회/분 · RR ${reportValue(secondVitals.respiratoryRate)}회/분 · SpO₂ ${reportValue(secondVitals.spo2)}% · BT ${reportValue(secondVitals.temperature)}℃ · BST ${reportValue(secondVitals.glucose)} mg/dL`, 7]])}

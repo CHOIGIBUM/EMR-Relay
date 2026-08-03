@@ -12,12 +12,10 @@ import {
   Clock3,
   FileText,
   Headphones,
-  Info,
   MapPin,
   Navigation,
   RadioTower,
   RefreshCw,
-  ShieldCheck,
 } from "lucide-react";
 import { STAGE_LABEL, stageAtLeast, useDemo } from "./DemoContext";
 import styles from "./ControlConsole.module.css";
@@ -54,16 +52,9 @@ export default function ControlConsole() {
     return (
       <section className={`${styles.console} ${styles.emptyConsole}`} aria-label="EMS Relay 이송조정 상황실 화면">
         <div className={styles.emptyWorkspace}>
-          <span className={styles.emptyIcon}><RadioTower size={38} /></span>
-          <Badge tone="slate">요청 대기</Badge>
-          <h1>구급대의 병원 문의를 기다리고 있습니다</h1>
-          <p>병원 문의가 시작되면 환자 확인본, 문의 진행 상태와 병원 회신이 이 화면에 실시간으로 표시됩니다.</p>
-          <div className={styles.emptyStatus}>
-            <div><small>현재 사건</small><strong>{SCENARIO.id}</strong></div>
-            <div><small>구급대 진행 단계</small><strong>{STAGE_LABEL[state.stage]}</strong></div>
-            <div><small>상황실 업무</small><strong>지연 감시 · 연락 지원</strong></div>
-          </div>
-          <div className={styles.emptyBoundary}><ShieldCheck size={20} /><span><strong>상황실은 임상 판단이나 이송지를 대신 결정하지 않습니다.</strong><small>구급대와 병원의 문의·회신 흐름을 연결하고 예외 상황의 연락을 지원합니다.</small></span></div>
+          <span className={styles.emptyIcon}><RadioTower size={32} /></span>
+          <h1>병원 문의 대기</h1>
+          <p>구급대 요청이 도착하면 자동으로 표시됩니다.</p>
         </div>
       </section>
     );
@@ -119,7 +110,6 @@ export default function ControlConsole() {
 
                 <section className={styles.candidates}>
                   <div className={styles.sectionTitle}><div><Building2 size={19} /><h2>구급대 표시 병원 후보</h2></div><span>{directoryState === "error" ? "기관정보 연결 안 됨" : "거리·ETA·기관정보 참고"}</span></div>
-                  <div className={styles.referenceNotice}><Info size={16} /><span>가까운 순이 추천 순위는 아닙니다. 공공정보만으로 수용 가능 여부를 판단하지 않습니다.</span></div>
                   {directoryState === "error" && <div className={styles.directoryError}><AlertCircle size={18} /><span><strong>기관정보를 불러오지 못했습니다.</strong><small>재조회 전까지 병원 후보를 표시하지 않습니다.</small></span></div>}
                   <div className={styles.candidateList}>
                     {hospitalOptions.map((hospital) => {
@@ -175,7 +165,7 @@ export default function ControlConsole() {
           )}
 
           {(state.stage === "accepted" || state.stage === "destination-confirmed") && (
-            <div className={styles.acceptedAction}><CheckCircle2 size={23} /><span><strong>{selectedHospital?.name}</strong><small>병원 공식 회신 · 수용 가능</small></span><p>응급실 구급차 출입구<br />도착 전 연락</p><Badge tone="green">구급대 전달 완료</Badge></div>
+            <div className={styles.acceptedAction}><CheckCircle2 size={23} /><span><strong>{selectedHospital?.name}</strong><small>병원 공식 회신 · 수용 가능</small></span><p>수용 가능 회신이 구급대와 상황실에 공유되었습니다.</p><Badge tone="green">구급대 전달 완료</Badge></div>
           )}
 
           {stageAtLeast(state.stage, "transporting") && state.stage !== "complete" && (
@@ -186,10 +176,6 @@ export default function ControlConsole() {
             <div className={styles.completeAction}><CheckCircle2 size={27} /><h2>조정이 종료되었습니다</h2><p>{state.handoffRole} {state.handoffReceiver}<br />{timeFor("환자 인수 확인")} 환자 인수 확인</p></div>
           )}
 
-          <div className={styles.boundary}>
-            <span><ShieldCheck size={15} /><strong>상황실 역할 범위</strong></span>
-            <p>환자정보·임상 판단·이송지를 대신 결정하지 않고 지연·반복 거절 등 예외 상황의 연락을 지원합니다.</p>
-          </div>
         </aside>
       </div>
     </section>

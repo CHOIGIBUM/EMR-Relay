@@ -2,6 +2,7 @@ import type { CardioPttProposal, CardioPttUpdate } from "@/lib/cardioDemoData";
 import {
   createLocalVoiceProposal,
   getLocalHospitalDirectory,
+  getLocalRouteReference,
   LocalDemoApiError,
 } from "@/lib/localDemoApi";
 import type {
@@ -12,6 +13,8 @@ import type {
   EmsApiTransport,
   HospitalDirectoryRequest,
   HospitalDirectoryResponse,
+  RouteReferenceRequest,
+  RouteReferenceResponse,
   VoiceFactStatus,
   VoiceProposalResponse,
   VoiceProposalSource,
@@ -342,13 +345,27 @@ function parseHospitalDirectory(payload: unknown): HospitalDirectoryResponse {
   const hospitals = payload.hospitals.map((item) => {
     if (!isRecord(item)) throw new EmsApiError("병원정보 항목 형식이 올바르지 않습니다.", { code: "INVALID_CONTRACT" });
     const stringKeys = ["hospital_id", "display_name", "care_level", "region_label"] as const;
+    const routeSources = ["kakao_mobility_live", "kakao_mobility_snapshot", "local_straight_line_estimate", "unavailable"] as const;
+    const routeSource = String(item.route_source);
     if (
       stringKeys.some((key) => typeof item[key] !== "string")
       || typeof item.distance_km !== "number"
-      || typeof item.eta_minutes !== "number"
+      || !Number.isFinite(item.distance_km)
+      || item.distance_km < 0
+      || !(item.eta_minutes === null || (typeof item.eta_minutes === "number" && Number.isFinite(item.eta_minutes) && item.eta_minutes >= 0))
+      || !routeSources.includes(routeSource as (typeof routeSources)[number])
+      || typeof item.route_is_live !== "boolean"
+      || typeof item.is_road_route !== "boolean"
       || !isStringArray(item.reference_capabilities)
     ) {
       throw new EmsApiError("병원정보 항목의 필수값이 누락되었습니다.", { code: "INVALID_CONTRACT" });
+    }
+    if (
+      (!item.is_road_route && item.eta_minutes !== null)
+      || (item.route_is_live && (routeSource !== "kakao_mobility_live" || !item.is_road_route))
+      || (routeSource === "local_straight_line_estimate" && (item.route_is_live || item.is_road_route))
+    ) {
+      throw new EmsApiError("병원 경로의 출처와 거리·ETA 표시 규칙이 일치하지 않습니다.", { code: "INVALID_CONTRACT" });
     }
     return {
       hospital_id: item.hospital_id as string,
@@ -356,16 +373,53 @@ function parseHospitalDirectory(payload: unknown): HospitalDirectoryResponse {
       care_level: item.care_level as string,
       region_label: item.region_label as string,
       distance_km: item.distance_km as number,
-      eta_minutes: item.eta_minutes as number,
+      eta_minutes: item.eta_minutes as number | null,
       reference_capabilities: item.reference_capabilities,
       ...(typeof item.latitude === "number" && Number.isFinite(item.latitude) ? { latitude: item.latitude } : {}),
       ...(typeof item.longitude === "number" && Number.isFinite(item.longitude) ? { longitude: item.longitude } : {}),
+      route_source: routeSource as HospitalDirectoryResponse["hospitals"][number]["route_source"],
+      route_is_live: item.route_is_live,
+      is_road_route: item.is_road_route,
+      ...(typeof item.reference_source === "string" ? { reference_source: item.reference_source } : {}),
     };
   });
   return {
     hospitals,
     reference_at: payload.reference_at,
     source: payload.source as HospitalDirectoryResponse["source"],
+  };
+}
+
+function parseRouteReference(payload: unknown): RouteReferenceResponse {
+  const sources = ["kakao_mobility_live", "kakao_mobility_snapshot", "local_straight_line_estimate", "unavailable"];
+  if (
+    !isRecord(payload)
+    || !sources.includes(String(payload.source))
+    || typeof payload.is_live !== "boolean"
+    || typeof payload.is_road_route !== "boolean"
+    || typeof payload.calculated_at !== "string"
+    || typeof payload.notice !== "string"
+    || !(payload.path === undefined || (Array.isArray(payload.path) && payload.path.every((point) => (
+      isRecord(point)
+      && typeof point.latitude === "number"
+      && Number.isFinite(point.latitude)
+      && typeof point.longitude === "number"
+      && Number.isFinite(point.longitude)
+    ))))
+    || !(payload.distance_km === null || (typeof payload.distance_km === "number" && Number.isFinite(payload.distance_km)))
+    || !(payload.eta_minutes === null || (typeof payload.eta_minutes === "number" && Number.isFinite(payload.eta_minutes)))
+  ) {
+    throw new EmsApiError("경로정보 응답 형식이 올바르지 않습니다.", { code: "INVALID_CONTRACT" });
+  }
+  return {
+    distance_km: payload.distance_km as number | null,
+    eta_minutes: payload.eta_minutes as number | null,
+    source: payload.source as RouteReferenceResponse["source"],
+    is_live: payload.is_live,
+    is_road_route: payload.is_road_route,
+    calculated_at: payload.calculated_at,
+    notice: payload.notice,
+    ...(Array.isArray(payload.path) ? { path: payload.path as Array<{ latitude: number; longitude: number }> } : {}),
   };
 }
 
@@ -410,6 +464,45 @@ export async function getHospitalDirectory(
     init: { method: "GET" },
     options,
     parse: parseHospitalDirectory,
+  });
+}
+
+export async function getRouteReference(
+  input: RouteReferenceRequest,
+  options?: RequestOptions,
+): Promise<EmsApiResult<RouteReferenceResponse>> {
+  const caseId = input.caseId.trim();
+  const values = [
+    input.origin.latitude,
+    input.origin.longitude,
+    input.destination.latitude,
+    input.destination.longitude,
+  ];
+  if (
+    !caseId
+    || values.some((value) => !Number.isFinite(value))
+    || input.origin.latitude < -90
+    || input.origin.latitude > 90
+    || input.destination.latitude < -90
+    || input.destination.latitude > 90
+    || input.origin.longitude < -180
+    || input.origin.longitude > 180
+    || input.destination.longitude < -180
+    || input.destination.longitude > 180
+  ) {
+    throw new EmsApiError("출발지와 도착지 좌표를 확인해 주세요.", { code: "INVALID_REQUEST" });
+  }
+  const requestBody = {
+    case_id: caseId,
+    origin: input.origin,
+    destination: input.destination,
+  };
+  return requestWithPolicy({
+    remotePath: "route",
+    localRequest: () => getLocalRouteReference(input),
+    init: { method: "POST", body: JSON.stringify(requestBody) },
+    options,
+    parse: parseRouteReference,
   });
 }
 

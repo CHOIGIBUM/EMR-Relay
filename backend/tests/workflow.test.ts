@@ -9,6 +9,8 @@ import { renderAnnex5Html, REQUIRED_REPORT_REVIEW_FIELDS } from "../src/reportSt
 import { validateDirectFactsRequest } from "../src/schemas.js";
 import type { AmbulanceActivityReport, ConfirmedState } from "../src/types.js";
 import { validateCaseCommand, validateTranscribeSession } from "../src/workflowSchemas.js";
+import { completedInitialAssessmentSteps, missingInitialAssessmentPaths } from "../src/assessmentContract.js";
+import { INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP } from "../src/types.js";
 
 function jwtEvent(groups: string, sub = "paramedic-01") {
   return {
@@ -57,6 +59,41 @@ test("validates idempotent workflow command and hospital decline reason", () => 
   assert.equal(invalid.ok, false);
 });
 
+test("validates the hospital route snapshot carried with a request", () => {
+  assert.equal(validateCaseCommand({
+    commandId: "command-route-001",
+    type: "HOSPITAL_REQUEST_CREATED",
+    payload: {
+      requestId: "request-route-001",
+      hospitalId: "hospital-route-001",
+      hospitalName: "강원권역응급의료센터",
+      distanceKm: 18.4,
+      etaMinutes: 27,
+    },
+  }).ok, true);
+
+  assert.equal(validateCaseCommand({
+    commandId: "command-route-002",
+    type: "HOSPITAL_REQUEST_CREATED",
+    payload: {
+      requestId: "request-route-002",
+      hospitalId: "hospital-route-001",
+      distanceKm: -1,
+      etaMinutes: 2_000,
+    },
+  }).ok, false);
+
+  assert.equal(validateCaseCommand({
+    commandId: "command-route-003",
+    type: "HOSPITAL_REQUEST_CREATED",
+    payload: {
+      requestId: "request-route-003",
+      hospitalId: "hospital-route-001",
+      etaMinutes: null,
+    },
+  }).ok, true);
+});
+
 test("accepts only the 16 kHz ko-KR PCM streaming contract", () => {
   assert.equal(validateTranscribeSession({ caseId: "GW-CARDIO-050", languageCode: "ko-KR", sampleRateHertz: 16000 }).ok, true);
   assert.equal(validateTranscribeSession({ caseId: "GW-CARDIO-050", sampleRateHertz: 48000 }).ok, false);
@@ -77,6 +114,61 @@ test("validates human-confirmed structured vital signs before persistence", () =
     kind: "initial",
     facts: [{ path: "vitals.spo2", value: 140, sourceText: "잘못된 값" }],
   }).ok, false);
+});
+
+test("validates the mobile ABC and chest-pain field contract", () => {
+  const valid = validateDirectFactsRequest({
+    expectedVersion: 0,
+    kind: "initial",
+    facts: [
+      { path: "assessment.airway", value: "개방", sourceText: "기도 개방" },
+      { path: "assessment.breathing", value: "자발호흡", sourceText: "자발호흡" },
+      { path: "assessment.circulation", value: "맥박 촉지", sourceText: "맥박 촉지" },
+      { path: "symptoms.chestPainNrs", value: 5, sourceText: "NRS 5" },
+    ],
+  });
+  assert.equal(valid.ok, true);
+  assert.equal(validateDirectFactsRequest({
+    expectedVersion: 0,
+    kind: "initial",
+    facts: [{ path: "assessment.airway", value: "추정 개방", sourceText: "추정" }],
+  }).ok, false);
+  assert.equal(validateDirectFactsRequest({
+    expectedVersion: 0,
+    kind: "initial",
+    facts: [{ path: "symptoms.chestPainNrs", value: 11, sourceText: "NRS 11" }],
+  }).ok, false);
+});
+
+test("does not complete a step or unlock hospital inquiry from one accepted fact", () => {
+  const partial = {
+    caseId: "GW-CARDIO-050",
+    version: 1,
+    facts: {
+      "assessment.airway": {
+        value: "개방",
+        sourceText: "기도 개방",
+        confirmedAt: "2026-08-04T01:00:00Z",
+        confirmedBy: "paramedic-01",
+        proposalId: "proposal-001",
+      },
+    },
+  };
+  assert.deepEqual(completedInitialAssessmentSteps(partial), []);
+  assert.ok(missingInitialAssessmentPaths(partial).length > 0);
+
+  const completeFacts = Object.fromEntries(Object.values(INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP)
+    .flat()
+    .map((path) => [path, {
+      value: path === "symptoms.associated" ? ["식은땀"] : path === "symptoms.chestPainNrs" ? 5 : "확인값",
+      sourceText: "구급대원 확인",
+      confirmedAt: "2026-08-04T01:00:00Z",
+      confirmedBy: "paramedic-01",
+      proposalId: "proposal-001",
+    }]));
+  const complete = { caseId: "GW-CARDIO-050", version: 17, facts: completeFacts };
+  assert.deepEqual(completedInitialAssessmentSteps(complete), [1, 2, 3]);
+  assert.deepEqual(missingInitialAssessmentPaths(complete), []);
 });
 
 test("keeps initial and reassessment direct-input paths separate", () => {

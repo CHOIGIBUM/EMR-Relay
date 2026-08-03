@@ -42,6 +42,10 @@ Convert a Korean paramedic voice update into structured, human-reviewable field-
 - Put a short exact Korean evidence quote in sourceText.
 - If a new value conflicts with confirmed state, return a proposal plus a CONFLICT flag. Never overwrite silently.
 - For measured values put the JSON number in value and the unit in the sibling unit field.
+- Map the primary survey only to these exact values: assessment.airway = "개방" or "확보 필요";
+  assessment.breathing = "자발호흡" or "호흡 이상"; assessment.circulation = "맥박 촉지" or "순환 불안정".
+- Map chest-pain fields separately: symptoms.chestPainNrs is a JSON number from 0 to 10,
+  symptoms.chestPainQuality is the stated quality, and symptoms.chestPainRadiation is the stated radiation site or "없음".
 </extraction_policy>
 
 <output_policy>

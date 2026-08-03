@@ -230,6 +230,9 @@ Resources:
         Hospitals:
           Type: HttpApi
           Properties: { ApiId: !Ref HttpApi, Path: /hospitals, Method: GET }
+        RouteReference:
+          Type: HttpApi
+          Properties: { ApiId: !Ref HttpApi, Path: /route, Method: POST }
         GetCase:
           Type: HttpApi
           Properties: { ApiId: !Ref HttpApi, Path: "/cases/{id}", Method: GET }

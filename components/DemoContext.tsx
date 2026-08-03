@@ -87,10 +87,16 @@ export type HospitalOption = {
   type: string;
   distance: string;
   eta: string;
+  distanceKm?: number | null;
+  etaMinutes?: number | null;
   location: string;
   reference: string[];
+  address?: string;
   latitude?: number;
   longitude?: number;
+  routeSource?: "kakao_mobility_live" | "kakao_mobility_snapshot" | "local_straight_line_estimate" | "unavailable";
+  routeIsLive?: boolean;
+  isRoadRoute?: boolean;
 };
 
 const formatClock = (iso: string) => new Intl.DateTimeFormat("ko-KR", {
@@ -103,10 +109,29 @@ export type ScenarioView = {
   id: string;
   sourceCaseId: string;
   unit: string;
+  unitBase?: {
+    name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
+  locationName?: string;
+  sceneLocation?: {
+    name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
   location: string;
   locationShort: string;
   latitude?: number;
   longitude?: number;
+  routeToScene?: {
+    distanceKm: number;
+    etaMinutes: number;
+    source: "kakao_mobility_live" | "kakao_mobility_snapshot";
+    isLive: boolean;
+  };
   access: string;
   caller: string;
   callerPhone: string;
@@ -124,6 +149,11 @@ export type ScenarioView = {
   medication: string;
   allergy: string;
   avpu: "미확인" | "A" | "V" | "P" | "U";
+  primarySurvey: {
+    airway: string;
+    breathing: string;
+    circulation: string;
+  };
   impression: string;
   impressionStatus: FactState;
   interventions: string[];
@@ -134,10 +164,24 @@ export const SCENARIO: ScenarioView = {
   id: CARDIO_DEMO_DISPATCH.displayId,
   sourceCaseId: CARDIO_DEMO_DISPATCH.caseId,
   unit: CARDIO_DEMO_DISPATCH.assignedUnit,
+  unitBase: { ...CARDIO_DEMO_DISPATCH.unitBase },
+  locationName: CARDIO_DEMO_DISPATCH.location.name,
+  sceneLocation: {
+    name: CARDIO_DEMO_DISPATCH.location.name,
+    address: CARDIO_DEMO_DISPATCH.location.displayAddress,
+    latitude: CARDIO_DEMO_DISPATCH.location.latitude,
+    longitude: CARDIO_DEMO_DISPATCH.location.longitude,
+  },
   location: CARDIO_DEMO_DISPATCH.location.displayAddress,
   locationShort: CARDIO_DEMO_DISPATCH.location.sigungu,
   latitude: CARDIO_DEMO_DISPATCH.location.latitude,
   longitude: CARDIO_DEMO_DISPATCH.location.longitude,
+  routeToScene: {
+    distanceKm: CARDIO_DEMO_DISPATCH.routeToScene.distanceKm,
+    etaMinutes: CARDIO_DEMO_DISPATCH.routeToScene.etaMinutes,
+    source: CARDIO_DEMO_DISPATCH.routeToScene.source,
+    isLive: CARDIO_DEMO_DISPATCH.routeToScene.isLive,
+  },
   access: `${CARDIO_DEMO_DISPATCH.location.setting} · 신고자 현장 대기`,
   caller: CARDIO_DEMO_DISPATCH.callerRelation,
   callerPhone: "010-42**-11**",
@@ -155,6 +199,11 @@ export const SCENARIO: ScenarioView = {
   medication: `${CARDIO_DEMO_PATIENT.history.medicationName} 복용 진술 · 확인 필요`,
   allergy: CARDIO_DEMO_PATIENT.history.allergyLabel,
   avpu: CARDIO_DEMO_PATIENT.initialAssessment.avpu,
+  primarySurvey: {
+    airway: CARDIO_DEMO_PATIENT.initialAssessment.airway.replace(/^기도\s*/, ""),
+    breathing: CARDIO_DEMO_PATIENT.initialAssessment.breathing,
+    circulation: CARDIO_DEMO_PATIENT.initialAssessment.circulation,
+  },
   impression: CARDIO_DEMO_PATIENT.prehospitalImpressionLabel,
   impressionStatus: CARDIO_DEMO_PATIENT.impressionStatus,
   interventions: ["심전도 감시", "12유도 심전도", "정맥로 확보"],
@@ -185,11 +234,49 @@ function createOperationalScenario(caseId: string): ScenarioView {
     medication: "미확인",
     allergy: "미확인",
     avpu: "미확인",
+    primarySurvey: { airway: "미확인", breathing: "미확인", circulation: "미확인" },
     impression: "병원 전 평가 미확인",
     impressionStatus: "unknown",
     interventions: [],
     unresolvedItems: [],
   };
+}
+
+export const REQUIRED_ASSESSMENT_PATHS_BY_STEP = {
+  1: [
+    "assessment.airway",
+    "assessment.breathing",
+    "assessment.circulation",
+    "consciousness.avpu",
+    "symptoms.chiefComplaint",
+  ],
+  2: [
+    "symptoms.onsetAt",
+    "symptoms.chestPainNrs",
+    "symptoms.chestPainQuality",
+    "symptoms.chestPainRadiation",
+    "symptoms.associated",
+  ],
+  3: [
+    "vitals.systolicBp",
+    "vitals.diastolicBp",
+    "vitals.pulse",
+    "vitals.respiratoryRate",
+    "vitals.spo2",
+    "vitals.temperature",
+    "vitals.glucose",
+  ],
+} as const;
+
+function hasUsableFactValue(value: unknown) {
+  if (value === null || value === undefined || value === "") return false;
+  return !Array.isArray(value) || value.length > 0;
+}
+
+export function completedAssessmentSequences(paths: ReadonlySet<string>) {
+  return ([1, 2, 3] as const).filter((step) => (
+    REQUIRED_ASSESSMENT_PATHS_BY_STEP[step].every((path) => paths.has(path))
+  ));
 }
 
 export const HOSPITALS: HospitalOption[] = CARDIO_DEMO_HOSPITALS.map((hospital) => ({
@@ -198,8 +285,16 @@ export const HOSPITALS: HospitalOption[] = CARDIO_DEMO_HOSPITALS.map((hospital) 
   type: hospital.careLevelLabel,
   distance: `${hospital.distanceKm.toFixed(1)} km`,
   eta: `${hospital.etaMinutes}분`,
+  distanceKm: hospital.distanceKm,
+  etaMinutes: hospital.etaMinutes,
   location: hospital.regionLabel,
   reference: [...hospital.referenceCapabilities],
+  address: hospital.address,
+  latitude: hospital.latitude,
+  longitude: hospital.longitude,
+  routeSource: hospital.routeSource,
+  routeIsLive: false,
+  isRoadRoute: true,
 }));
 
 export const STAGE_LABEL: Record<DemoStage, string> = {
@@ -465,9 +560,20 @@ function confirmPtt(
     };
   }
 
-  const confirmedPttIds = [...state.confirmedPttIds, updateId];
-  const firstThreeConfirmed = ([1, 2, 3] as const).every((sequence) =>
-    confirmedPttIds.some((id) => id.endsWith(`-U0${sequence}`)));
+  const confirmedPaths = new Set(Object.values(facts)
+    .filter((fact) => hasUsableFactValue(fact.rawValue))
+    .map((fact) => fact.fieldPath)
+    .filter((path): path is string => Boolean(path)));
+  const completedSequences = completedAssessmentSequences(confirmedPaths);
+  const inferredSequence = update?.sequence ?? (() => {
+    const match = updateId.match(/-U0([1-4])$/);
+    return match ? Number(match[1]) as 1 | 2 | 3 | 4 : null;
+  })();
+  const updateComplete = inferredSequence === 4 || (inferredSequence !== null && completedSequences.includes(inferredSequence));
+  const confirmedPttIds = updateComplete
+    ? [...new Set([...state.confirmedPttIds, updateId])]
+    : state.confirmedPttIds;
+  const firstThreeConfirmed = completedSequences.length === 3;
   const isInitialVitals = accepted.some((item) => item.fieldPath?.startsWith("vitals.") || item.id === "U03-vitals");
   const isReassessment = accepted.some((item) => item.fieldPath?.startsWith("reassessment.") || item.fieldPath === "transport.reassessment" || item.id === "U04-vitals");
   const initialVitals = isInitialVitals ? applyVitalProposals(state.vitals, accepted) : state.vitals;
@@ -488,7 +594,7 @@ function confirmPtt(
     voiceConfirmed: firstThreeConfirmed,
     cardioConfirmed: firstThreeConfirmed,
     vitals: initialVitals,
-    vitalsConfirmed: hasCompleteVitalSet(initialVitals) || state.vitalsConfirmed,
+    vitalsConfirmed: completedSequences.includes(3),
     avpu: nextAvpu,
     reassessmentSaved: (isReassessment && reassessmentVitals !== null && hasCompleteVitalSet(reassessmentVitals)) || state.reassessmentSaved,
     reassessmentVitals,
@@ -501,7 +607,7 @@ function confirmPtt(
     time: occurredAt,
     actor: "구급대원",
     title: `${update?.title ?? "환자 상태 음성 입력"} 확인`,
-    detail: `제안 ${accepted.length}건 반영${rejectedProposalIds.length ? ` · ${rejectedProposalIds.length}건 제외` : ""}`,
+    detail: `제안 ${accepted.length}건 반영${rejectedProposalIds.length ? ` · ${rejectedProposalIds.length}건 제외` : ""}${updateComplete ? " · 단계 완료" : " · 필수항목 확인 필요"}`,
     tone: (update?.needsReview ?? true) ? "amber" : "teal",
   });
   return next;
@@ -545,7 +651,7 @@ function reducer(state: DemoState, action: Action): DemoState {
         action.reviewedProposals,
       );
     case "CONFIRM_ASSESSMENT":
-      if (!state.vitalsConfirmed || state.avpu === "미확인" || state.confirmedPttIds.length < 3) return state;
+      if (!([1, 2, 3] as const).every((sequence) => state.confirmedPttIds.some((id) => id.endsWith(`-U0${sequence}`)))) return state;
       return appendEvent(
         { ...state, stage: "summary-ready", cardioConfirmed: true },
         {
@@ -658,7 +764,7 @@ function reducer(state: DemoState, action: Action): DemoState {
           time: occurredAt,
           actor: "병원",
           title: "수용 가능 회신",
-          detail: `${hospital?.name ?? "요청 병원"} · 구급차 출입구 도착 후 해당 팀 호출`,
+          detail: `${hospital?.name ?? "요청 병원"} · 수용 가능 회신이 공유되었습니다.`,
           tone: "teal",
         },
       );
@@ -845,17 +951,13 @@ export function operationalPttUpdateId(caseId: string, sequence: 1 | 2 | 3 | 4) 
   return `${caseId}-U0${sequence}`;
 }
 
-function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: ScenarioView): ScenarioView {
+export function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: ScenarioView): ScenarioView {
   const empty = createOperationalScenario(snapshot.caseId);
   const facts = snapshot.confirmedState.facts;
   const fact = (path: string) => facts[path]?.value;
   const text = (path: string) => {
     const value = fact(path);
     return typeof value === "string" || typeof value === "number" ? String(value).trim() : "";
-  };
-  const list = (path: string) => {
-    const value = fact(path);
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [];
   };
   const textOrList = (path: string) => {
     const value = fact(path);
@@ -873,6 +975,10 @@ function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: Scenari
     const value = assigned[key];
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
   };
+  const assignedRecord = (key: string) => {
+    const value = assigned[key];
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  };
   const age = text("patient.age");
   const rawSex = text("patient.sex");
   const sex = rawSex === "female" ? "여성" : rawSex === "male" ? "남성" : rawSex;
@@ -883,9 +989,9 @@ function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: Scenari
     const parsed = new Date(onsetRaw);
     onset = Number.isNaN(parsed.getTime()) ? onsetRaw : formatClock(parsed.toISOString());
   }
-  const symptoms = list("symptoms.associated");
-  const conditions = list("history.conditions");
-  const medications = list("history.medications");
+  const symptoms = textOrList("symptoms.associated");
+  const conditions = textOrList("history.conditions");
+  const medications = textOrList("history.medications");
   const allergyValue = fact("history.allergies");
   const allergy = Array.isArray(allergyValue) ? allergyValue.join(" · ") : text("history.allergies");
   const chiefComplaint = text("symptoms.chiefComplaint");
@@ -896,9 +1002,42 @@ function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: Scenari
     ...textOrList("treatment.procedures"),
   ];
   const chestPain = text("symptoms.chestPain");
-  const latitude = assignedNumber("latitude") ?? previous.latitude;
-  const longitude = assignedNumber("longitude") ?? previous.longitude;
+  const chestPainNrsRaw = fact("symptoms.chestPainNrs");
+  const chestPainNrs = typeof chestPainNrsRaw === "number"
+    ? chestPainNrsRaw
+    : typeof chestPainNrsRaw === "string" && chestPainNrsRaw.trim() && Number.isFinite(Number(chestPainNrsRaw))
+      ? Number(chestPainNrsRaw)
+      : empty.pain.severityNrs;
+  const chestPainQuality = text("symptoms.chestPainQuality") || chestPain;
+  const chestPainRadiation = text("symptoms.chestPainRadiation");
+  const primarySurvey = {
+    airway: text("assessment.airway") || empty.primarySurvey.airway,
+    breathing: text("assessment.breathing") || empty.primarySurvey.breathing,
+    circulation: text("assessment.circulation") || empty.primarySurvey.circulation,
+  };
+  const reportedLocation = assignedRecord("reportedLocation");
+  const reportedLatitude = typeof reportedLocation.latitude === "number" && Number.isFinite(reportedLocation.latitude)
+    ? reportedLocation.latitude
+    : assignedNumber("latitude");
+  const reportedLongitude = typeof reportedLocation.longitude === "number" && Number.isFinite(reportedLocation.longitude)
+    ? reportedLocation.longitude
+    : assignedNumber("longitude");
+  const latitude = reportedLatitude ?? previous.latitude;
+  const longitude = reportedLongitude ?? previous.longitude;
   const hasCurrentPosition = latitude !== undefined && longitude !== undefined;
+  const unitBase = assignedRecord("unitBase");
+  const unitBaseLatitude = typeof unitBase.latitude === "number" && Number.isFinite(unitBase.latitude) ? unitBase.latitude : undefined;
+  const unitBaseLongitude = typeof unitBase.longitude === "number" && Number.isFinite(unitBase.longitude) ? unitBase.longitude : undefined;
+  const unitBaseName = typeof unitBase.name === "string" ? unitBase.name.trim() : "";
+  const unitBaseAddress = typeof unitBase.address === "string" ? unitBase.address.trim() : "";
+  const reportedAddress = assignedText("reportedAddress") || assignedText("location");
+  const reportedPlaceName = assignedText("reportedPlaceName") || assignedText("locationShort");
+  const estimatedAgeBand = assignedText("estimatedAgeBand");
+  const estimatedSex = assignedText("estimatedSex");
+  const estimatedPatient = [
+    estimatedAgeBand ? `${estimatedAgeBand.replace(/\s*세(?:\s*추정)?$/u, "")}세 추정` : "",
+    estimatedSex,
+  ].filter(Boolean).join(" · ");
   const unresolvedItems = [
     ...(allergy ? [] : ["약물 알레르기"]),
     ...(text("assessment.ecg") ? [] : ["12유도 심전도 상세 소견"]),
@@ -909,15 +1048,22 @@ function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: Scenari
     id: snapshot.caseId,
     sourceCaseId: snapshot.caseId,
     unit: snapshot.meta?.unitId ?? (assignedText("unitId") || empty.unit),
-    location: assignedText("location") || (hasCurrentPosition ? "현재 GPS 위치" : empty.location),
-    locationShort: assignedText("locationShort") || (hasCurrentPosition ? "GPS 위치" : empty.locationShort),
+    ...(unitBaseName && unitBaseAddress && unitBaseLatitude !== undefined && unitBaseLongitude !== undefined
+      ? { unitBase: { name: unitBaseName, address: unitBaseAddress, latitude: unitBaseLatitude, longitude: unitBaseLongitude } }
+      : {}),
+    ...(reportedPlaceName ? { locationName: reportedPlaceName } : {}),
+    ...(reportedAddress && reportedLatitude !== undefined && reportedLongitude !== undefined
+      ? { sceneLocation: { name: reportedPlaceName || "신고 현장", address: reportedAddress, latitude: reportedLatitude, longitude: reportedLongitude } }
+      : {}),
+    location: reportedAddress || (hasCurrentPosition ? "현재 GPS 위치" : empty.location),
+    locationShort: reportedPlaceName || (hasCurrentPosition ? "GPS 위치" : empty.locationShort),
     latitude,
     longitude,
     access: assignedText("access") || empty.access,
     caller: assignedText("caller") || empty.caller,
     callerPhone: assignedText("callerPhone") || empty.callerPhone,
-    reportedPatient: assignedText("reportedPatient") || empty.reportedPatient,
-    reportedComplaint: snapshot.meta?.scenario?.trim() || assignedText("reportedComplaint") || empty.reportedComplaint,
+    reportedPatient: assignedText("reportedPatient") || estimatedPatient || empty.reportedPatient,
+    reportedComplaint: assignedText("reportedComplaint") || assignedText("dispatchSummary") || empty.reportedComplaint,
     patient,
     living: assignedText("baseline") || empty.living,
     chiefComplaint: chiefComplaint || empty.chiefComplaint,
@@ -925,13 +1071,19 @@ function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: Scenari
     onset,
     onsetSource: onsetRaw ? "확인된 사건 기록" : empty.onsetSource,
     symptoms,
-    pain: { ...empty.pain, quality: chestPain || empty.pain.quality },
+    pain: {
+      ...empty.pain,
+      severityNrs: chestPainNrs,
+      quality: chestPainQuality || empty.pain.quality,
+      radiation: chestPainRadiation || empty.pain.radiation,
+    },
     history: conditions,
     medication: medications.length ? `${medications.join(" · ")} · 확인됨` : empty.medication,
     allergy: allergy || empty.allergy,
     avpu: ["A", "V", "P", "U"].includes(text("consciousness.avpu"))
       ? text("consciousness.avpu") as ScenarioView["avpu"]
       : empty.avpu,
+    primarySurvey,
     impression: impression || empty.impression,
     impressionStatus: impression ? "confirmed" : "unknown",
     interventions,
@@ -939,7 +1091,7 @@ function snapshotToScenario(snapshot: OperationalCaseSnapshot, previous: Scenari
   };
 }
 
-function snapshotToState(snapshot: OperationalCaseSnapshot): DemoState {
+export function snapshotToState(snapshot: OperationalCaseSnapshot): DemoState {
   const empty = operationalInitialState();
   const facts = snapshot.confirmedState.facts;
   const value = (path: string) => facts[path]?.value;
@@ -957,13 +1109,30 @@ function snapshotToState(snapshot: OperationalCaseSnapshot): DemoState {
     temp: numberText("vitals.temperature"),
     glucose: numberText("vitals.glucose"),
   };
-  const confirmedPaths = Object.keys(facts).filter((path) => facts[path]);
+  const confirmedPaths = new Set(Object.entries(facts)
+    .filter(([, confirmed]) => confirmed && hasUsableFactValue(confirmed.value))
+    .map(([path]) => path));
+  const completedSequences = completedAssessmentSequences(confirmedPaths);
   const confirmedPttIds = [
-    confirmedPaths.some((path) => path.startsWith("patient.") || path === "symptoms.chiefComplaint" || path === "consciousness.avpu") ? operationalPttUpdateId(snapshot.caseId, 1) : null,
-    confirmedPaths.some((path) => path === "symptoms.onsetAt" || path === "symptoms.associated" || path.startsWith("history.")) ? operationalPttUpdateId(snapshot.caseId, 2) : null,
-    confirmedPaths.some((path) => path.startsWith("vitals.") || path.startsWith("assessment.") || path.startsWith("treatment.")) ? operationalPttUpdateId(snapshot.caseId, 3) : null,
-    confirmedPaths.some((path) => path.startsWith("reassessment.") || path === "transport.reassessment") ? operationalPttUpdateId(snapshot.caseId, 4) : null,
+    ...completedSequences.map((sequence) => operationalPttUpdateId(snapshot.caseId, sequence)),
+    confirmedPaths.has("transport.reassessment") ? operationalPttUpdateId(snapshot.caseId, 4) : null,
   ].filter((id) => id !== null) as string[];
+  const confirmedFacts = Object.fromEntries(Object.entries(facts).flatMap(([path, confirmed]) => {
+    if (!confirmed) return [];
+    const displayValue = Array.isArray(confirmed.value) ? confirmed.value.join(" · ") : confirmed.value === null ? "미상" : String(confirmed.value);
+    return [[path, {
+      id: path,
+      label: path,
+      displayValue,
+      status: "confirmed" as const,
+      sourceLabel: "구급대원 확인",
+      evidence: confirmed.sourceText,
+      fieldPath: path,
+      rawValue: confirmed.value,
+      unit: confirmed.unit ?? null,
+      confirmedAt: formatClock(confirmed.confirmedAt),
+    } satisfies ConfirmedFact]];
+  }));
   const events = snapshot.events?.length
     ? snapshot.events.map((event, index) => ({
         id: index + 1,
@@ -1001,7 +1170,7 @@ function snapshotToState(snapshot: OperationalCaseSnapshot): DemoState {
     ? avpuValue as DemoState["avpu"]
     : "미확인";
   let resolvedStage = snapshot.meta?.stage ? stageByBackend[snapshot.meta.stage] : empty.stage;
-  if (snapshot.meta?.stage === "ASSESSING" && hasCompleteVitalSet(vitals) && avpu !== "미확인" && confirmedPttIds.length >= 3) {
+  if (snapshot.meta?.stage === "ASSESSING" && completedSequences.length === 3) {
     resolvedStage = "summary-ready";
   }
   const reportStatus: ReportStatus = snapshot.report?.status === "FINALIZED"
@@ -1030,11 +1199,12 @@ function snapshotToState(snapshot: OperationalCaseSnapshot): DemoState {
     ...empty,
     stage: resolvedStage,
     vitals,
-    vitalsConfirmed: hasCompleteVitalSet(vitals),
+    vitalsConfirmed: completedSequences.includes(3),
     avpu,
     confirmedPttIds,
-    voiceConfirmed: confirmedPttIds.length >= 3,
-    cardioConfirmed: confirmedPttIds.length >= 3,
+    confirmedFacts,
+    voiceConfirmed: completedSequences.length === 3,
+    cardioConfirmed: completedSequences.length === 3,
     selectedHospitalId: snapshot.meta?.destinationHospitalId ?? latestRequest?.hospitalId ?? null,
     activeHospitalRequestId: latestRequest?.requestId ?? null,
     declinedHospitalIds: snapshot.hospitalRequests?.filter((request) => request.status === "DECLINED").map((request) => request.hospitalId) ?? [],
@@ -1053,6 +1223,36 @@ function snapshotToState(snapshot: OperationalCaseSnapshot): DemoState {
   };
 }
 
+export function hospitalRequestSnapshot(hospital: HospitalOption | undefined) {
+  if (!hospital) return {};
+  return {
+    hospitalName: hospital.name,
+    ...(typeof hospital.distanceKm === "number" ? { distanceKm: hospital.distanceKm } : {}),
+    ...(hospital.etaMinutes === null || typeof hospital.etaMinutes === "number"
+      ? { etaMinutes: hospital.etaMinutes }
+      : {}),
+  };
+}
+
+export function hospitalOptionsFromSnapshot(snapshot: OperationalCaseSnapshot): HospitalOption[] {
+  const hospitalsById = new Map<string, HospitalOption>();
+  for (const request of snapshot.hospitalRequests ?? []) {
+    if (hospitalsById.has(request.hospitalId)) continue;
+    hospitalsById.set(request.hospitalId, {
+      id: request.hospitalId,
+      name: request.hospitalName?.trim() || "병원명 미제공",
+      type: "수용 문의 기관",
+      distance: typeof request.distanceKm === "number" ? `${request.distanceKm.toFixed(1)} km` : "거리 미제공",
+      eta: typeof request.etaMinutes === "number" ? `${request.etaMinutes}분` : "ETA 미제공",
+      distanceKm: request.distanceKm ?? null,
+      etaMinutes: request.etaMinutes ?? null,
+      location: "기관 위치 미제공",
+      reference: [],
+    });
+  }
+  return [...hospitalsById.values()];
+}
+
 function commandForAction(action: Action, state: DemoState, hospitals: HospitalOption[]): { type: string; payload: Record<string, unknown> } | null {
   if (action.type === "TRANSITION") {
     const byStage: Partial<Record<DemoStage, string>> = {
@@ -1069,7 +1269,14 @@ function commandForAction(action: Action, state: DemoState, hospitals: HospitalO
   switch (action.type) {
     case "REQUEST_HOSPITAL": {
       const hospital = hospitals.find((item) => item.id === action.hospitalId);
-      return { type: "HOSPITAL_REQUEST_CREATED", payload: { requestId: `REQ-${crypto.randomUUID()}`, hospitalId: action.hospitalId, hospitalName: hospital?.name } };
+      return {
+        type: "HOSPITAL_REQUEST_CREATED",
+        payload: {
+          requestId: `REQ-${crypto.randomUUID()}`,
+          hospitalId: action.hospitalId,
+          ...hospitalRequestSnapshot(hospital),
+        },
+      };
     }
     case "MARK_HOSPITAL_VIEWED": return requestId ? { type: "HOSPITAL_REQUEST_VIEWED", payload: { requestId } } : null;
     case "REQUEST_INFO": return requestId ? { type: "ADDITIONAL_INFO_REQUESTED", payload: { requestId, message: action.fields.join(" · ") } } : null;
@@ -1128,6 +1335,7 @@ export function DemoProvider({
       setConfirmedVersion(snapshot.confirmedState.version);
       setRemoteReport(snapshot.report);
       setScenario((current) => snapshotToScenario(snapshot, current));
+      if (operationalRole !== "paramedic") setHospitals(hospitalOptionsFromSnapshot(snapshot));
       managedDispatch({ type: "SNAPSHOT", snapshot });
       setWaitingForRequest(false);
       setSyncError(null);
@@ -1142,28 +1350,11 @@ export function DemoProvider({
       setWaitingForRequest(false);
       setSyncError(error instanceof Error ? error.message : "사건 정보를 불러오지 못했습니다.");
     }
-  }, [caseId, quietForbiddenAsWaiting, remoteEnabled]);
+  }, [caseId, operationalRole, quietForbiddenAsWaiting, remoteEnabled]);
 
   const dispatch = useCallback<React.Dispatch<Action>>((action) => {
     const normalized = { ...action, occurredAt: formatEventTime() } as Action;
-    const directFactsRequest = action.type === "CONFIRM_ASSESSMENT" ? (() => {
-      const [systolic, diastolic] = state.vitals.bp.split("/").map((value) => Number(value.trim()));
-      const observedAt = new Date().toISOString();
-      return {
-        expectedVersion: confirmedVersion,
-        kind: "initial" as const,
-        facts: [
-          { path: "vitals.systolicBp", value: systolic, observedAt, sourceText: `구급대원 직접 입력: 수축기혈압 ${systolic} mmHg` },
-          { path: "vitals.diastolicBp", value: diastolic, observedAt, sourceText: `구급대원 직접 입력: 이완기혈압 ${diastolic} mmHg` },
-          { path: "vitals.pulse", value: Number(state.vitals.pr), observedAt, sourceText: `구급대원 직접 입력: 맥박 ${state.vitals.pr}회/분` },
-          { path: "vitals.respiratoryRate", value: Number(state.vitals.rr), observedAt, sourceText: `구급대원 직접 입력: 호흡수 ${state.vitals.rr}회/분` },
-          { path: "vitals.spo2", value: Number(state.vitals.spo2), observedAt, sourceText: `구급대원 직접 입력: SpO₂ ${state.vitals.spo2}%` },
-          { path: "vitals.temperature", value: Number(state.vitals.temp), observedAt, sourceText: `구급대원 직접 입력: 체온 ${state.vitals.temp}℃` },
-          { path: "vitals.glucose", value: Number(state.vitals.glucose), observedAt, sourceText: `구급대원 직접 입력: 혈당 ${state.vitals.glucose} mg/dL` },
-          { path: "consciousness.avpu", value: state.avpu, observedAt, sourceText: `구급대원 직접 확인: AVPU ${state.avpu}` },
-        ],
-      };
-    })() : action.type === "SAVE_REASSESSMENT" ? (() => {
+    const directFactsRequest = action.type === "SAVE_REASSESSMENT" ? (() => {
       const values = action.values ?? state.reassessmentVitals ?? emptyVitals();
       const [systolic, diastolic] = values.bp.split("/").map((value) => Number(value.trim()));
       const observedAt = new Date().toISOString();
@@ -1301,21 +1492,42 @@ export function DemoProvider({
           name: hospital.display_name,
           type: hospital.care_level,
           distance: `${hospital.distance_km.toFixed(1)} km`,
-          eta: `${hospital.eta_minutes}분`,
+          eta: hospital.eta_minutes === null ? "ETA 미제공" : `${hospital.eta_minutes}분`,
+          distanceKm: hospital.distance_km,
+          etaMinutes: hospital.eta_minutes,
           location: hospital.region_label,
           reference: hospital.reference_capabilities,
+          address: hospital.region_label,
           latitude: hospital.latitude,
           longitude: hospital.longitude,
+          routeSource: hospital.route_source,
+          routeIsLive: hospital.route_is_live,
+          isRoadRoute: hospital.is_road_route,
         })));
       } catch (error) {
         if (cancelled || (error instanceof DOMException && error.name === "AbortError")) return;
-        setSyncError("현재 위치 기준 병원 기관정보를 불러오지 못했습니다. 위치 권한과 연결 상태를 확인해 주세요.");
+        setSyncError("현장 기준 병원 기관정보와 경로를 불러오지 못했습니다. 연결 상태를 확인해 주세요.");
       }
     };
 
+    // Hospital routing starts from the reported scene coordinate. This is the
+    // ambulance's known operational origin while the patient is being assessed,
+    // and it keeps a denied browser GPS permission from blocking the workflow.
+    // Device GPS is requested only as a fallback when dispatch did not provide
+    // a usable scene coordinate; it never overwrites the reported scene address.
+    const sceneLatitude = scenario.sceneLocation?.latitude ?? scenario.latitude;
+    const sceneLongitude = scenario.sceneLocation?.longitude ?? scenario.longitude;
+    if (sceneLatitude !== undefined && sceneLongitude !== undefined) {
+      void loadDirectory(sceneLatitude, sceneLongitude);
+      return () => {
+        cancelled = true;
+        controller.abort();
+      };
+    }
+
     if (!("geolocation" in navigator)) {
       const unavailableTimer = window.setTimeout(() => {
-        setSyncError("현재 위치를 확인할 수 없는 기기입니다. 병원 조회를 위해 위치 기능이 필요합니다.");
+        setSyncError("신고 현장 좌표가 없고 현재 위치도 확인할 수 없습니다. 상황실에서 현장 위치를 확인해 주세요.");
       }, 0);
       return () => {
         window.clearTimeout(unavailableTimer);
@@ -1330,13 +1542,10 @@ export function DemoProvider({
           ...current,
           latitude,
           longitude,
-          location: current.location === "현장 위치 확인 필요" ? "현재 GPS 위치" : current.location,
-          locationShort: current.locationShort === "위치 미확인" ? "GPS 위치" : current.locationShort,
         }));
-        void loadDirectory(latitude, longitude);
       },
       () => {
-        if (!cancelled) setSyncError("현재 위치 권한이 없어 주변 병원을 조회하지 못했습니다. 위치 권한을 허용한 뒤 다시 접속해 주세요.");
+        if (!cancelled) setSyncError("신고 현장 좌표가 없고 현재 위치 권한도 허용되지 않았습니다. 상황실에서 현장 위치를 확인해 주세요.");
       },
       { enableHighAccuracy: true, maximumAge: 15_000, timeout: 10_000 },
     );
@@ -1344,7 +1553,15 @@ export function DemoProvider({
       cancelled = true;
       controller.abort();
     };
-  }, [caseId, operationalRole, remoteEnabled]);
+  }, [
+    caseId,
+    operationalRole,
+    remoteEnabled,
+    scenario.latitude,
+    scenario.longitude,
+    scenario.sceneLocation?.latitude,
+    scenario.sceneLocation?.longitude,
+  ]);
 
   useEffect(() => {
     if (operational || remoteEnabled || !hydratedRef.current || managed.origin !== "local") return;

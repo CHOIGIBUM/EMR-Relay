@@ -73,10 +73,14 @@ export type HospitalDirectoryItem = {
   care_level: string;
   region_label: string;
   distance_km: number;
-  eta_minutes: number;
+  eta_minutes: number | null;
   reference_capabilities: string[];
   latitude?: number;
   longitude?: number;
+  route_source: "kakao_mobility_live" | "kakao_mobility_snapshot" | "local_straight_line_estimate" | "unavailable";
+  route_is_live: boolean;
+  is_road_route: boolean;
+  reference_source?: string;
 };
 
 export type HospitalDirectoryResponse = {
@@ -89,6 +93,23 @@ export type HospitalDirectoryRequest = {
   caseId: string;
   latitude: number;
   longitude: number;
+};
+
+export type RouteReferenceRequest = {
+  caseId: string;
+  origin: { latitude: number; longitude: number };
+  destination: { latitude: number; longitude: number };
+};
+
+export type RouteReferenceResponse = {
+  distance_km: number | null;
+  eta_minutes: number | null;
+  source: "kakao_mobility_live" | "kakao_mobility_snapshot" | "local_straight_line_estimate" | "unavailable";
+  is_live: boolean;
+  is_road_route: boolean;
+  calculated_at: string;
+  notice: string;
+  path?: Array<{ latitude: number; longitude: number }>;
 };
 
 export type EmsApiTransport = "remote" | "local";

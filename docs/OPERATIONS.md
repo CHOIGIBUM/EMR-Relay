@@ -223,7 +223,7 @@ NEXT_PUBLIC_EMS_API_MODE=remote
 NEXT_PUBLIC_EMS_BACKEND_URL=https://322rrfmbme.execute-api.us-west-2.amazonaws.com
 NEXT_PUBLIC_EMS_ALLOW_LOCAL_FALLBACK=false
 NEXT_PUBLIC_EMS_OPERATIONAL_MODE=remote
-NEXT_PUBLIC_EMS_DEFAULT_CASE_ID=GW-CARDIO-051
+NEXT_PUBLIC_EMS_DEFAULT_CASE_ID=GW-CARDIO-052
 NEXT_PUBLIC_EMS_ALLOW_DEVELOPMENT_FALLBACK=false
 NEXT_PUBLIC_EMS_SCRIPTED_PTT=false
 NEXT_PUBLIC_COGNITO_DOMAIN=https://ems-relay-462993243992-us-west-2.auth.us-west-2.amazoncognito.com
@@ -288,7 +288,7 @@ $Seed = [scriptblock]::Create(
 )
 
 & $Seed -Profile $Profile -Region $Region -Apply `
-  -CaseId GW-CARDIO-051 -PrepareInteractiveCase
+  -CaseId GW-CARDIO-052 -PrepareInteractiveCase
 ```
 
 기대값은 `ASSIGNED v1`, 임상 사실 0, 병원 문의 0, 이송지 미선택이다. 병원 데모 계정은 속초의료원 NMC ID `A2200012`에 연결된다.
@@ -326,7 +326,7 @@ $Seed = [scriptblock]::Create(
 ### 5.6 실제 마이크 수동 확인
 
 1. Chrome 또는 Edge에서 서비스 `/login`에 접속한다.
-2. 구급대원 계정으로 로그인해 `GW-CARDIO-051`을 연다.
+2. 구급대원 계정으로 로그인해 `GW-CARDIO-052`를 연다.
 3. 브라우저 마이크 권한을 허용한다.
 4. PTT를 누르고 짧은 한국어 현장 업데이트를 말한다.
 5. 중앙 오버레이에 부분 문장이 나타나는지 확인한다.

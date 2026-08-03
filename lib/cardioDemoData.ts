@@ -6,8 +6,9 @@
  * - generated/cases/GW-CARDIO-050/voice_updates.jsonl
  * - generated/cases/GW-CARDIO-050/hospital_events.jsonl
  *
- * The browser never reads those workspace files at runtime. Hospital names below
- * are fictional demo aliases and are not the names of real medical institutions.
+ * The browser never reads those workspace files at runtime. Public institution
+ * names, addresses and coordinates are real reference data. Patient information
+ * and every hospital inquiry/reply remain synthetic demonstration data.
  */
 
 export type DemoSex = "female" | "male" | "unknown";
@@ -55,13 +56,27 @@ export type CardioDispatch = {
   reportedAgeBand: string;
   reportedSex: DemoSex;
   reportedComplaint: string;
+  unitBase: {
+    name: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+  };
   location: {
+    name: string;
     sido: string;
     sigungu: string;
     setting: string;
     displayAddress: string;
     latitude: number;
     longitude: number;
+  };
+  routeToScene: {
+    distanceKm: number;
+    etaMinutes: number;
+    source: "kakao_mobility_snapshot";
+    calculatedAt: string;
+    isLive: false;
   };
 };
 
@@ -166,7 +181,13 @@ export type CardioHospitalCandidate = {
   displayOrder: 1 | 2 | 3;
   status: HospitalDisplayStatus;
   statusLabel: string;
-  isDemoAlias: true;
+  isDemoAlias: boolean;
+  address: string;
+  latitude: number;
+  longitude: number;
+  routeSource: "kakao_mobility_snapshot";
+  routeCalculatedAt: string;
+  replyIsSynthetic: true;
   referenceCapabilities: readonly string[];
 };
 
@@ -191,7 +212,6 @@ export type CardioHospitalEvent = {
   detail: string;
   requestedItems?: readonly string[];
   declineReasonCode?: string;
-  arrivalInstruction?: string;
 };
 
 export type CardioInquiryBranch = {
@@ -266,26 +286,40 @@ export const CARDIO_DEMO_CASE_ID = "GW-CARDIO-050";
 export const CARDIO_DEMO_DISPATCH = {
   caseId: CARDIO_DEMO_CASE_ID,
   displayId: "EMS-GW-050",
-  assignedUnit: "강원 119 구급대 07",
+  assignedUnit: "영랑119안전센터 구급대",
   callReceivedAt: "2026-08-09T11:18:00+09:00",
   dispatchAssignedAt: "2026-08-09T11:19:00+09:00",
   unitEnrouteAt: "2026-08-09T11:22:00+09:00",
   sceneArrivalAt: "2026-08-09T11:53:00+09:00",
   patientContactAt: "2026-08-09T11:54:00+09:00",
   transportDepartureAt: "2026-08-09T12:36:17+09:00",
-  hospitalArrivalAt: "2026-08-09T14:14:17+09:00",
-  handoffCompletedAt: "2026-08-09T14:22:17+09:00",
+  hospitalArrivalAt: "2026-08-09T13:28:17+09:00",
+  handoffCompletedAt: "2026-08-09T13:36:17+09:00",
   callerRelation: "목격자",
   reportedAgeBand: "65~74세 추정",
   reportedSex: "female",
   reportedComplaint: "쥐어짜는 양상의 흉통",
+  unitBase: {
+    name: "영랑119안전센터",
+    address: "강원특별자치도 속초시 번영로 188",
+    latitude: 38.2154164233856,
+    longitude: 128.59031570815,
+  },
   location: {
+    name: "속초관광수산시장",
     sido: "강원특별자치도",
-    sigungu: "속초시",
-    setting: "공공장소·차량·야외",
-    displayAddress: "속초시 합성 현장 050",
-    latitude: 38.219826,
-    longitude: 128.11196,
+    sigungu: "속초시 중앙동",
+    setting: "전통시장 공용통로",
+    displayAddress: "강원특별자치도 속초시 중앙로147번길 16",
+    latitude: 38.204542733975174,
+    longitude: 128.5902457350099,
+  },
+  routeToScene: {
+    distanceKm: 1.9,
+    etaMinutes: 5,
+    source: "kakao_mobility_snapshot",
+    calculatedAt: "2026-08-04T03:15:00+09:00",
+    isLive: false,
   },
 } as const satisfies CardioDispatch;
 
@@ -364,8 +398,32 @@ export const CARDIO_DEMO_PTT_UPDATES = [
     startedAt: "2026-08-09T11:56:00+09:00",
     endedAt: "2026-08-09T11:56:22+09:00",
     transcript:
-      "73세 여성 환자입니다. 주호소는 쥐어짜는 양상의 흉통입니다. 현재 의식은 AVPU A이고 목격자 진술과 함께 확인했습니다.",
+      "환자 접촉 후 초기 평가입니다. 기도 개방, 호흡 자발호흡, 순환 맥박 촉지입니다. 의식수준은 AVPU A입니다. 주호소는 쥐어짜는 양상의 흉통입니다.",
     proposals: [
+      {
+        id: "U01-airway",
+        label: "A · 기도",
+        displayValue: "개방",
+        status: "confirmed",
+        sourceLabel: "구급대원 관찰",
+        evidence: "기도 개방",
+      },
+      {
+        id: "U01-breathing",
+        label: "B · 호흡",
+        displayValue: "자발호흡",
+        status: "confirmed",
+        sourceLabel: "구급대원 관찰",
+        evidence: "호흡 자발호흡",
+      },
+      {
+        id: "U01-circulation",
+        label: "C · 순환",
+        displayValue: "맥박 촉지",
+        status: "confirmed",
+        sourceLabel: "구급대원 관찰",
+        evidence: "순환 맥박 촉지",
+      },
       {
         id: "U01-age",
         label: "연령·성별",
@@ -380,7 +438,7 @@ export const CARDIO_DEMO_PTT_UPDATES = [
         displayValue: "쥐어짜는 양상의 흉통",
         status: "confirmed",
         sourceLabel: "구급대원 관찰",
-        evidence: "주호소는 쥐어짜는 양상의 흉통입니다.",
+        evidence: "주호소는 쥐어짜는 양상의 흉통",
       },
       {
         id: "U01-avpu",
@@ -388,7 +446,7 @@ export const CARDIO_DEMO_PTT_UPDATES = [
         displayValue: "AVPU A",
         status: "confirmed",
         sourceLabel: "구급대원 관찰",
-        evidence: "현재 의식은 AVPU A",
+        evidence: "AVPU A",
       },
     ],
     needsReview: false,
@@ -401,7 +459,7 @@ export const CARDIO_DEMO_PTT_UPDATES = [
     startedAt: "2026-08-09T11:58:00+09:00",
     endedAt: "2026-08-09T11:58:19+09:00",
     transcript:
-      "증상 시작 시각은 09시 38분이며 정확히 확인된 시각입니다. 과거력은 당뇨, 심부전입니다. 항응고제 복용 중으로 파악되며 약 이름은 와파린입니다. 약물 알레르기는 확인하지 못했습니다.",
+      "증상 발생시각은 09:38입니다. 흉통은 NRS 5, 무거운 느낌 양상이며 방사통은 오른팔입니다. 동반증상은 식은땀, 오심입니다. 과거력은 당뇨·심부전, 복용약은 와파린, 알레르기는 미확인입니다.",
     proposals: [
       {
         id: "U02-onset",
@@ -409,7 +467,39 @@ export const CARDIO_DEMO_PTT_UPDATES = [
         displayValue: "09:38",
         status: "confirmed",
         sourceLabel: "환자·보호자 진술",
-        evidence: "증상 시작 시각은 09시 38분",
+        evidence: "09:38",
+      },
+      {
+        id: "U02-nrs",
+        label: "흉통 NRS",
+        displayValue: "5",
+        status: "confirmed",
+        sourceLabel: "환자·보호자 진술",
+        evidence: "NRS 5",
+      },
+      {
+        id: "U02-quality",
+        label: "흉통 양상",
+        displayValue: "무거운 느낌",
+        status: "confirmed",
+        sourceLabel: "환자·보호자 진술",
+        evidence: "무거운 느낌",
+      },
+      {
+        id: "U02-radiation",
+        label: "방사통",
+        displayValue: "오른팔",
+        status: "confirmed",
+        sourceLabel: "환자·보호자 진술",
+        evidence: "오른팔",
+      },
+      {
+        id: "U02-associated",
+        label: "동반 증상",
+        displayValue: "식은땀 · 오심",
+        status: "confirmed",
+        sourceLabel: "환자·보호자 진술",
+        evidence: "식은땀, 오심",
       },
       {
         id: "U02-history",
@@ -417,7 +507,7 @@ export const CARDIO_DEMO_PTT_UPDATES = [
         displayValue: "당뇨 · 심부전",
         status: "unconfirmed",
         sourceLabel: "환자·보호자 진술",
-        evidence: "과거력은 당뇨, 심부전입니다.",
+        evidence: "과거력은 당뇨·심부전",
       },
       {
         id: "U02-medication",
@@ -425,7 +515,7 @@ export const CARDIO_DEMO_PTT_UPDATES = [
         displayValue: "와파린 복용 진술",
         status: "unconfirmed",
         sourceLabel: "환자·보호자 진술",
-        evidence: "항응고제 복용 중으로 파악되며 약 이름은 와파린",
+        evidence: "복용약은 와파린",
       },
       {
         id: "U02-allergy",
@@ -433,7 +523,7 @@ export const CARDIO_DEMO_PTT_UPDATES = [
         displayValue: "미상",
         status: "unknown",
         sourceLabel: "확인하지 못함",
-        evidence: "약물 알레르기는 확인하지 못했습니다.",
+        evidence: "알레르기는 미확인",
       },
     ],
     needsReview: true,
@@ -517,42 +607,60 @@ export const CARDIO_DEMO_PTT_UPDATES = [
 export const CARDIO_DEMO_HOSPITALS = [
   {
     id: "H-GW-EMG-020",
-    alias: "해솔응급의료센터",
-    regionLabel: "속초권",
+    alias: "강원특별자치도속초의료원",
+    regionLabel: "속초시 영랑동",
     careLevelLabel: "지역응급의료센터",
-    distanceKm: 26.2,
-    etaMinutes: 46,
+    distanceKm: 2.2,
+    etaMinutes: 6,
     displayOrder: 1,
     status: "declined",
     statusLabel: "수용 곤란",
-    isDemoAlias: true,
-    referenceCapabilities: ["응급의학과", "CT", "심전도"],
+    isDemoAlias: false,
+    address: "강원특별자치도 속초시 영랑호반길 3",
+    latitude: 38.2162289591838,
+    longitude: 128.58911853428,
+    routeSource: "kakao_mobility_snapshot",
+    routeCalculatedAt: "2026-08-04T03:15:00+09:00",
+    replyIsSynthetic: true,
+    referenceCapabilities: ["지역응급의료센터", "NMC 응급의료기관 정보", "수용 여부 별도 확인"],
   },
   {
     id: "H-GW-EMG-016",
-    alias: "푸른강권역응급센터",
-    regionLabel: "영동권",
+    alias: "강릉아산병원",
+    regionLabel: "강릉시 사천면",
     careLevelLabel: "권역응급의료센터",
-    distanceKm: 59.1,
-    etaMinutes: 98,
+    distanceKm: 60.9,
+    etaMinutes: 52,
     displayOrder: 2,
     status: "selected",
     statusLabel: "수용 확인 · 이송지",
-    isDemoAlias: true,
-    referenceCapabilities: ["응급의학과", "심장내과", "심혈관조영실"],
+    isDemoAlias: false,
+    address: "강원특별자치도 강릉시 사천면 방동길 38",
+    latitude: 37.81843791567269,
+    longitude: 128.85777946739483,
+    routeSource: "kakao_mobility_snapshot",
+    routeCalculatedAt: "2026-08-04T03:15:00+09:00",
+    replyIsSynthetic: true,
+    referenceCapabilities: ["권역응급의료센터", "NMC 응급의료기관 정보", "수용 여부 별도 확인"],
   },
   {
     id: "H-GW-EMG-012",
-    alias: "새봄종합병원",
-    regionLabel: "강원권",
-    careLevelLabel: "지역응급의료기관",
-    distanceKm: 64.5,
-    etaMinutes: 107,
+    alias: "한림대학교춘천성심병원",
+    regionLabel: "춘천시 교동",
+    careLevelLabel: "권역응급의료센터",
+    distanceKm: 107.1,
+    etaMinutes: 108,
     displayOrder: 3,
     status: "unchecked",
     statusLabel: "문의 전",
-    isDemoAlias: true,
-    referenceCapabilities: ["응급실", "CT"],
+    isDemoAlias: false,
+    address: "강원특별자치도 춘천시 삭주로 77",
+    latitude: 37.88412960627195,
+    longitude: 127.73989083253264,
+    routeSource: "kakao_mobility_snapshot",
+    routeCalculatedAt: "2026-08-04T03:15:00+09:00",
+    replyIsSynthetic: true,
+    referenceCapabilities: ["권역응급의료센터", "NMC 응급의료기관 정보", "수용 여부 별도 확인"],
   },
 ] as const satisfies readonly CardioHospitalCandidate[];
 
@@ -566,7 +674,7 @@ export const CARDIO_DEMO_HOSPITAL_EVENTS = [
     actor: "paramedic",
     occurredAt: "2026-08-09T12:22:17+09:00",
     title: "수용 문의 전송",
-    detail: "확정 환자정보와 ETA 46분을 전송했습니다.",
+    detail: "확정 환자정보와 카카오 자동차 경로 ETA 6분을 전송했습니다.",
   },
   {
     id: "GW-CARDIO-050-HE02",
@@ -623,7 +731,7 @@ export const CARDIO_DEMO_HOSPITAL_EVENTS = [
     actor: "paramedic",
     occurredAt: "2026-08-09T12:29:17+09:00",
     title: "두 번째 수용 문의",
-    detail: "확정 환자정보와 ETA 98분을 전송했습니다.",
+    detail: "확정 환자정보와 카카오 자동차 경로 ETA 52분을 전송했습니다.",
   },
   {
     id: "GW-CARDIO-050-HE07",
@@ -646,7 +754,6 @@ export const CARDIO_DEMO_HOSPITAL_EVENTS = [
     occurredAt: "2026-08-09T12:31:17+09:00",
     title: "수용 가능",
     detail: "병원이 수용 가능을 회신했습니다.",
-    arrivalInstruction: "구급차 출입구 도착 후 해당 팀 호출",
   },
   {
     id: "GW-CARDIO-050-HE09",
@@ -698,8 +805,8 @@ export const CARDIO_DEMO_INQUIRY_BRANCHES = [
 ] as const satisfies readonly CardioInquiryBranch[];
 
 export const CARDIO_DEMO_HANDOFF = {
-  preparedAt: "2026-08-09T14:20:17+09:00",
-  handedOffAt: "2026-08-09T14:22:17+09:00",
+  preparedAt: "2026-08-09T13:34:17+09:00",
+  handedOffAt: "2026-08-09T13:36:17+09:00",
   receiverRole: "응급실 의료진",
   destinationHospitalId: "H-GW-EMG-016",
   sections: {
@@ -732,13 +839,13 @@ export const CARDIO_DEMO_TIMELINE = [
   { id: "T09", stage: "ACCEPTED", occurredAt: "2026-08-09T12:31:17+09:00", label: "두 번째 병원 수용 가능", actor: "hospital_receiver" },
   { id: "T10", stage: "DESTINATION_CONFIRMED", occurredAt: "2026-08-09T12:32:17+09:00", label: "이송지 확정", actor: "paramedic" },
   { id: "T11", stage: "TRANSPORTING", occurredAt: "2026-08-09T12:36:17+09:00", label: "이송 시작", actor: "paramedic" },
-  { id: "T12", stage: "HOSPITAL_ARRIVED", occurredAt: "2026-08-09T14:14:17+09:00", label: "병원 도착", actor: "paramedic" },
-  { id: "T13", stage: "HANDOFF_COMPLETE", occurredAt: "2026-08-09T14:22:17+09:00", label: "환자 인계 완료", actor: "hospital_receiver" },
+  { id: "T12", stage: "HOSPITAL_ARRIVED", occurredAt: "2026-08-09T13:28:17+09:00", label: "병원 도착", actor: "paramedic" },
+  { id: "T13", stage: "HANDOFF_COMPLETE", occurredAt: "2026-08-09T13:36:17+09:00", label: "환자 인계 완료", actor: "hospital_receiver" },
 ] as const satisfies readonly CardioTimelinePoint[];
 
 export const CARDIO_DEMO_REPORT_DRAFT = {
   title: "구급활동일지 대응 작성 초안",
-  generatedAt: "2026-08-09T14:22:18+09:00",
+  generatedAt: "2026-08-09T13:36:18+09:00",
   completion: {
     totalFields: 38,
     autoFilledFields: 34,

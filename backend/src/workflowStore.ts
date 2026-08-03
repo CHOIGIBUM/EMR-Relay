@@ -8,7 +8,8 @@ import {
   type TransactWriteCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { AuthorizationError, primaryRole } from "./auth.js";
-import { StoreConflictError, StoreNotFoundError } from "./store.js";
+import { getConfirmedState, StoreConflictError, StoreNotFoundError } from "./store.js";
+import { missingInitialAssessmentPaths } from "./assessmentContract.js";
 import type {
   AuthPrincipal,
   CaseCommand,
@@ -196,6 +197,8 @@ function updatedHospitalRequest(
       caseId: "",
       hospitalId: String(payload.hospitalId),
       ...(typeof payload.hospitalName === "string" ? { hospitalName: payload.hospitalName } : {}),
+      ...(typeof payload.distanceKm === "number" ? { distanceKm: payload.distanceKm } : {}),
+      ...(payload.etaMinutes === null || typeof payload.etaMinutes === "number" ? { etaMinutes: payload.etaMinutes } : {}),
       status: "REQUESTED",
       requestedBy: principal.sub,
       createdAt: occurredAt,
@@ -258,6 +261,12 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
 
   const requestId = typeof command.payload.requestId === "string" ? command.payload.requestId : undefined;
   const existingRequest = requestId ? await getHospitalRequest(caseId, requestId) : null;
+  if (command.type === "HOSPITAL_REQUEST_CREATED") {
+    const missingPaths = missingInitialAssessmentPaths(await getConfirmedState(caseId));
+    if (missingPaths.length) {
+      throw new StoreConflictError(`초기 환자평가 필수항목을 모두 확인한 뒤 병원에 문의하세요: ${missingPaths.join(", ")}`);
+    }
+  }
   if (command.type === "DESTINATION_CONFIRMED_BY_PARAMEDIC") {
     if (!existingRequest || existingRequest.status !== "ACCEPTED") throw new StoreConflictError("수용 가능 회신을 받은 병원만 이송지로 확정할 수 있습니다.");
     if (existingRequest.hospitalId !== command.payload.hospitalId) throw new StoreConflictError("문의 병원과 이송지 병원이 일치하지 않습니다.");

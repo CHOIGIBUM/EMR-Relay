@@ -22,6 +22,7 @@ _CANONICAL_UNITS: dict[str, tuple[str, set[str]]] = {
 
 _REFERENCE_RANGES: dict[str, tuple[float, float]] = {
     "patient.age": (0, 125),
+    "symptoms.chestPainNrs": (0, 10),
     "vitals.systolicBp": (30, 300),
     "vitals.diastolicBp": (20, 200),
     "vitals.pulse": (20, 250),
@@ -166,4 +167,3 @@ def map_evidence_span(
 
 
 CLINICAL_TOOLS = [normalize_clinical_unit, validate_clinical_range, map_evidence_span]
-

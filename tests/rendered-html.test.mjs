@@ -64,7 +64,7 @@ test("structures the prepared field statement without a local HTTP route", async
   });
   assert.equal(result.pending_review, true);
   assert.equal(result.update_id, "GW-CARDIO-050-U01");
-  assert.equal(result.proposed_updates.length, 3);
+  assert.equal(result.proposed_updates.length, 5);
   assert.ok(result.proposed_updates.every((proposal) => proposal.review_state === "pending_review"));
   assert.ok(result.proposed_updates.every((proposal) => proposal.fact_status !== "confirmed"));
 });

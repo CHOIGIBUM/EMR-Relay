@@ -9,6 +9,7 @@ import {
 } from "./auth.js";
 import { publishFinalizedReport } from "./fhir.js";
 import { getHospitalReferences } from "./external/hospitalReferenceService.js";
+import { getLiveRouteReference, validateRouteReferenceRequest } from "./external/routeReferenceService.js";
 import { createRealtimeTicket } from "./realtimeStore.js";
 import {
   createReportDraft,
@@ -101,6 +102,9 @@ const DISPLAY_LABELS: Record<FactPath, string> = {
   "symptoms.chiefComplaint": "주호소",
   "symptoms.onsetAt": "증상 발생 시각",
   "symptoms.chestPain": "흉통",
+  "symptoms.chestPainNrs": "흉통 NRS",
+  "symptoms.chestPainQuality": "흉통 양상",
+  "symptoms.chestPainRadiation": "방사통",
   "symptoms.associated": "동반 증상",
   "consciousness.avpu": "의식 수준(AVPU)",
   "vitals.systolicBp": "수축기혈압",
@@ -113,6 +117,9 @@ const DISPLAY_LABELS: Record<FactPath, string> = {
   "history.conditions": "과거력",
   "history.medications": "복용약",
   "history.allergies": "알레르기",
+  "assessment.airway": "A · 기도",
+  "assessment.breathing": "B · 호흡",
+  "assessment.circulation": "C · 순환",
   "assessment.ecg": "12유도 심전도",
   "assessment.fieldImpression": "현장 평가 소견",
   "treatment.oxygen": "산소 투여",
@@ -213,6 +220,20 @@ async function handleHospitals(event: APIGatewayProxyEventV2, principal: AuthPri
   if (caseId) await assertCaseAccess(principal, caseId);
   const directory = await getHospitalReferences(latitude, longitude);
   return response(200, directory as unknown as JsonRecord);
+}
+
+async function handleRoute(event: APIGatewayProxyEventV2, principal: AuthPrincipal) {
+  requireRole(principal, "paramedic", "control");
+  const body = parseBody(event);
+  if (body === undefined) return errorResponse(400, "INVALID_JSON", "요청 본문을 JSON으로 해석할 수 없습니다.");
+  const validation = validateRouteReferenceRequest(body);
+  if (!validation.ok) return errorResponse(400, "VALIDATION_ERROR", "경로 조회 요청을 확인해 주세요.", validation.issues);
+  if (!isCaseId(validation.value.caseId)) return errorResponse(400, "INVALID_CASE_ID", "사건번호 형식이 올바르지 않습니다.");
+  await assertCaseAccess(principal, validation.value.caseId);
+  return response(
+    200,
+    await getLiveRouteReference(validation.value.origin, validation.value.destination) as unknown as JsonRecord,
+  );
 }
 
 async function handleGetCase(event: APIGatewayProxyEventV2, principal: AuthPrincipal) {
@@ -368,6 +389,7 @@ export async function handler(event: APIGatewayProxyEventV2, context: Context): 
     if (method === "POST" && requestPath === "/agent") return await handleAgent(event, principal);
     if (method === "POST" && /^\/cases\/[^/]+\/voice-updates\/proposals$/.test(requestPath)) return await handleAgent(event, principal, caseIdFrom(event));
     if (method === "GET" && requestPath === "/hospitals") return await handleHospitals(event, principal);
+    if (method === "POST" && requestPath === "/route") return await handleRoute(event, principal);
     if (method === "GET" && /^\/cases\/[^/]+$/.test(requestPath)) return await handleGetCase(event, principal);
     if (method === "POST" && /^\/cases\/[^/]+\/confirm$/.test(requestPath)) return await handleConfirm(event, principal);
     if (method === "POST" && /^\/cases\/[^/]+\/direct-facts$/.test(requestPath)) return await handleDirectFacts(event, principal);

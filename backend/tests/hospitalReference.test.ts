@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeEmergencyFacilities } from "../src/external/hospitalReferenceService.js";
+import { mergeEmergencyFacilities, sortHospitalReferences } from "../src/external/hospitalReferenceService.js";
 import type { ReferenceFacility } from "../src/external/nmc.js";
 
 const nmc: ReferenceFacility = {
@@ -43,4 +43,17 @@ test("enriches a matching NMC institution without replacing its identity or care
   assert.equal(facility.careLevel, "지역응급의료센터");
   assert.equal(facility.latitude, 38.2);
   assert.deepEqual(facility.sources, ["NMC", "HIRA"]);
+});
+
+test("orders live road routes by Kakao ETA and keeps straight-line fallbacks last", () => {
+  const sorted = sortHospitalReferences([
+    { id: "fallback-near", distance_km: 1.2, eta_minutes: null, route_is_live: false, is_road_route: false },
+    { id: "live-slow", distance_km: 20, eta_minutes: 38, route_is_live: true, is_road_route: true },
+    { id: "live-fast", distance_km: 24, eta_minutes: 27, route_is_live: true, is_road_route: true },
+    { id: "fallback-far", distance_km: 8.4, eta_minutes: null, route_is_live: false, is_road_route: false },
+  ]);
+
+  assert.deepEqual(sorted.map((item) => item.id), ["live-fast", "live-slow", "fallback-near", "fallback-far"]);
+  assert.equal(sorted[2]?.eta_minutes, null);
+  assert.equal(sorted[2]?.is_road_route, false);
 });

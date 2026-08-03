@@ -24,11 +24,14 @@ AWS SAM 기반의 인증·사건 동기화·음성 구조화·병원 회신·구
 | POST | `/cases/{id}/voice-updates/proposals` | 음성 문장의 AI 변경안 생성 |
 | POST | `/cases/{id}/confirm` | 구급대원 HITL 확정 |
 | GET | `/hospitals?case_id=&lat=&lng=` | NMC/HIRA/Kakao 참고정보 |
+| POST | `/route` | 사건 접근검사 후 서버 측 Kakao 자동차 경로·ETA 조회 (`case_id`, `origin`, `destination` JSON) |
 | GET | `/cases/{id}/report` | 최신 구급활동일지 조회 |
 | POST | `/cases/{id}/report/draft` | 별지 제5호서식 기반 구조화 초안 생성 |
 | POST | `/cases/{id}/report/review` | 섹션별 사람 검토 저장 |
 | POST | `/cases/{id}/report/finalize` | 최종 확정 및 S3 JSON/HTML 보관 |
 | POST | `/cases/{id}/fhir/publish` | 최종 확정 보고서 FHIR 발행 |
+
+`/route`의 정밀 좌표는 URL 쿼리에 넣지 않습니다. `case_id`는 필수이며 사건 접근권한 확인 후에만 외부 경로 API를 호출합니다. `/hospitals`는 Kakao 실시간 도로 ETA 순으로 정렬하고, 경로 조회 실패 항목은 직선거리(`is_road_route: false`)만 반환하며 `eta_minutes`는 `null`입니다.
 
 `POST /cases/{id}/commands` 계약:
 
@@ -62,10 +65,12 @@ Secrets Manager의 `ems-relay/external-api-keys` JSON은 다음 키를 사용합
   "NMC_BASE_URL": "https://apis.data.go.kr/...",
   "HIRA_SERVICE_KEY": "...",
   "HIRA_BASE_URL": "https://apis.data.go.kr/...",
-  "KAKAO_REST_API_KEY": "...",
+  "KAKAO_MOBILITY_REST_API_KEY": "...",
   "KAKAO_DIRECTIONS_URL": "https://apis-navi.kakaomobility.com/v1/directions"
 }
 ```
+
+`KAKAO_REST_API_KEY` 이름도 호환되지만 운영 secret은 `KAKAO_MOBILITY_REST_API_KEY`를 사용합니다. 이 키는 브라우저 번들에 포함하지 않습니다.
 
 ## 환경 변수
 

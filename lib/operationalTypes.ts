@@ -144,6 +144,7 @@ export type OperationalAnnex5Draft = {
   patientIdentity: Record<string, unknown>;
   symptomsAndOccurrence: Record<string, unknown>;
   patientAssessment: {
+    primarySurvey?: Record<string, unknown>;
     consciousness: Record<string, unknown>;
     pupils: Record<string, unknown>;
     vitalSigns: Array<Record<string, unknown>>;
@@ -208,6 +209,8 @@ export type OperationalCaseSnapshot = {
     requestId: string;
     hospitalId: string;
     hospitalName?: string;
+    distanceKm?: number;
+    etaMinutes?: number | null;
     status: "REQUESTED" | "VIEWED" | "INFO_REQUESTED" | "INFO_SENT" | "ACCEPTED" | "DECLINED" | "CANCELLED";
     requestedBy: string;
     createdAt: string;

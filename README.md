@@ -34,7 +34,7 @@ npm run dev
 - 병원 문의: 첫 병원 추가정보 요청 후 수용 곤란, 두 번째 병원 수용 가능 회신
 - 최종 단계: 구급대원 이송지 확인, 이송·재평가, 병원 인수, 보고서 검토
 
-병원명은 실제 기관명이 아닌 시연용 별칭입니다. 환자와 사건 정보도 모두 합성 데이터입니다.
+병원명·주소·좌표는 공공 API와 기관 공개정보에서 확인한 실제 기관 참고정보입니다. 환자·사건의 임상 내용과 병원 문의·회신은 모두 합성 시연 데이터입니다.
 
 ## 구현된 핵심 기능
 
@@ -73,6 +73,7 @@ AWS API가 준비되면 `.env.local`에서 `NEXT_PUBLIC_EMS_API_MODE=remote`와
 - 음성 변경안: `POST /cases/{caseId}/voice-updates/proposals`
 - 검토 결과 확정: `POST /cases/{caseId}/confirm`
 - 병원 참고정보: `GET /hospitals?case_id=&lat=&lng=`
+- 자동차 경로: `POST /route` (`case_id`, `origin`, `destination` JSON; 사건 접근검사 후 호출)
 - Agent 응답은 항상 `pending_review: true`이며, 원격 모드에서는 모든 항목의 승인·제외 결정을 확정 API가 성공적으로 저장한 뒤에만 화면의 확정 상태가 변경됩니다.
 - `NEXT_PUBLIC_EMS_REVIEWER_ID`는 해커톤용 검토자 식별자이며 운영에서는 Cognito 로그인 정보로 대체합니다.
 - 운용 모드에는 `NEXT_PUBLIC_EMS_OPERATIONAL_MODE=remote`, 로컬 개발 역할 로그인에는 `NEXT_PUBLIC_EMS_DEV_AUTH=true`를 사용합니다.

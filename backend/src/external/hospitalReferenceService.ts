@@ -17,6 +17,25 @@ function facilityNameKey(name: string) {
   return name.replace(/\s+/g, "").toLowerCase();
 }
 
+type RankedHospitalReference = {
+  distance_km: number;
+  eta_minutes: number | null;
+  route_is_live: boolean;
+  is_road_route: boolean;
+};
+
+/** Live Kakao road routes are ordered by ETA. If Kakao is unavailable, the
+ * fallback entries follow in straight-line distance order and expose no ETA. */
+export function sortHospitalReferences<T extends RankedHospitalReference>(hospitals: T[]): T[] {
+  return [...hospitals].sort((left, right) => {
+    const leftLive = left.route_is_live && left.is_road_route && left.eta_minutes !== null;
+    const rightLive = right.route_is_live && right.is_road_route && right.eta_minutes !== null;
+    if (leftLive !== rightLive) return leftLive ? -1 : 1;
+    if (leftLive && rightLive) return (left.eta_minutes as number) - (right.eta_minutes as number);
+    return left.distance_km - right.distance_km;
+  });
+}
+
 /**
  * NMC emergency institutions are the candidate allowlist. HIRA is used only
  * to enrich a matching NMC institution and can never add a clinic by itself.
@@ -50,12 +69,16 @@ export async function getHospitalReferences(latitude: number, longitude: number)
   const nmc = settled[0].status === "fulfilled" ? settled[0].value : [];
   const hira = settled[1].status === "fulfilled" ? settled[1].value : [];
   const facilities = mergeEmergencyFacilities(nmc, hira)
-    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b)).slice(0, 8);
+    .filter((facility) => facility.latitude !== undefined && facility.longitude !== undefined)
+    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b))
+    .slice(0, 8);
 
   const hospitals = await Promise.all(facilities.map(async (facility) => {
-    const route = facility.latitude !== undefined && facility.longitude !== undefined
-      ? await fetchKakaoRoute(secrets, origin, { latitude: facility.latitude, longitude: facility.longitude }).catch(() => null)
-      : null;
+    const route = await fetchKakaoRoute(
+      secrets,
+      origin,
+      { latitude: facility.latitude as number, longitude: facility.longitude as number },
+    ).catch(() => null);
     const straight = haversineKm(origin, facility);
     return {
       hospital_id: facility.id,
@@ -64,17 +87,21 @@ export async function getHospitalReferences(latitude: number, longitude: number)
       region_label: facility.address ?? "지역 미확인",
       ...(facility.latitude !== undefined ? { latitude: facility.latitude } : {}),
       ...(facility.longitude !== undefined ? { longitude: facility.longitude } : {}),
-      distance_km: route?.distanceKm ?? (Number.isFinite(straight) ? Number(straight.toFixed(1)) : 0),
-      eta_minutes: route?.etaMinutes ?? 0,
+      distance_km: route ? Number(route.distanceKm.toFixed(1)) : Number(straight.toFixed(1)),
+      eta_minutes: route?.etaMinutes ?? null,
       reference_capabilities: facility.capabilities,
       acceptance_status: "not_provided",
       source: facility.sources.join("+") + (route ? "+KAKAO" : ""),
+      reference_source: facility.sources.join("+"),
+      route_source: route ? "kakao_mobility_live" : "local_straight_line_estimate",
+      route_is_live: Boolean(route),
+      is_road_route: Boolean(route),
     };
   }));
   return {
-    hospitals,
+    hospitals: sortHospitalReferences(hospitals),
     reference_at: new Date().toISOString(),
     source: hospitals.length ? "live_reference_apis" : "unavailable",
-    notice: "기관·거리·예상 이동시간 참고정보이며 실시간 수용 여부가 아닙니다.",
+    notice: "카카오 경로 성공 항목은 도로 ETA 순입니다. 실패 항목은 직선거리만 표시하며 ETA를 제공하지 않습니다. 수용 여부 정보가 아닙니다.",
   };
 }

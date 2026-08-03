@@ -8,6 +8,7 @@ from langgraph.graph import END, START
 from pydantic import ValidationError
 
 from ems_relay_agentcore.invariants import enforce_proposal_only
+from ems_relay_agentcore.fallback import deterministic_fallback
 from ems_relay_agentcore.model import REQUIRED_TEMPERATURE, get_model_settings
 from ems_relay_agentcore.schemas import (
     AgentResponse,
@@ -37,6 +38,23 @@ def request_payload(transcript: str = "혈압 178/96, 맥박 92, 산소포화도
             "phase": "scene",
         },
     }
+
+
+def test_deterministic_fallback_supports_only_the_structured_mobile_primary_survey() -> None:
+    transcript = (
+        "환자 접촉 후 초기 평가입니다. 기도 개방, 호흡 자발호흡, 순환 맥박 촉지입니다. "
+        "의식수준은 AVPU A입니다. 주호소는 흉통입니다."
+    )
+    draft = deterministic_fallback(transcript)
+    paths = {item.path for item in draft.changes}
+    assert paths == {
+        "assessment.airway",
+        "assessment.breathing",
+        "assessment.circulation",
+        "consciousness.avpu",
+        "symptoms.chiefComplaint",
+    }
+    assert deterministic_fallback("임의 문장").changes == []
 
 
 class StaticExtractor:

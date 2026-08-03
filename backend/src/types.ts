@@ -4,6 +4,9 @@ export const ALLOWED_FACT_PATHS = [
   "symptoms.chiefComplaint",
   "symptoms.onsetAt",
   "symptoms.chestPain",
+  "symptoms.chestPainNrs",
+  "symptoms.chestPainQuality",
+  "symptoms.chestPainRadiation",
   "symptoms.associated",
   "consciousness.avpu",
   "vitals.systolicBp",
@@ -16,6 +19,9 @@ export const ALLOWED_FACT_PATHS = [
   "history.conditions",
   "history.medications",
   "history.allergies",
+  "assessment.airway",
+  "assessment.breathing",
+  "assessment.circulation",
   "assessment.ecg",
   "assessment.fieldImpression",
   "treatment.oxygen",
@@ -33,6 +39,43 @@ export const ALLOWED_FACT_PATHS = [
 ] as const;
 
 export type FactPath = (typeof ALLOWED_FACT_PATHS)[number];
+
+/**
+ * Minimum human-confirmed dataset used by the three mobile assessment steps.
+ * Optional history, medication, allergy, ECG and treatment fields are not
+ * workflow gates; missing optional facts remain explicitly unknown.
+ */
+export const INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP = {
+  1: [
+    "assessment.airway",
+    "assessment.breathing",
+    "assessment.circulation",
+    "consciousness.avpu",
+    "symptoms.chiefComplaint",
+  ],
+  2: [
+    "symptoms.onsetAt",
+    "symptoms.chestPainNrs",
+    "symptoms.chestPainQuality",
+    "symptoms.chestPainRadiation",
+    "symptoms.associated",
+  ],
+  3: [
+    "vitals.systolicBp",
+    "vitals.diastolicBp",
+    "vitals.pulse",
+    "vitals.respiratoryRate",
+    "vitals.spo2",
+    "vitals.temperature",
+    "vitals.glucose",
+  ],
+} as const satisfies Record<1 | 2 | 3, readonly FactPath[]>;
+
+export const INITIAL_ASSESSMENT_REQUIRED_PATHS: readonly FactPath[] = [
+  ...INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP[1],
+  ...INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP[2],
+  ...INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP[3],
+];
 export type ProposalValue = string | number | boolean | null | string[];
 export type ProposalCertainty = "clear" | "needs_confirmation" | "unknown";
 export type FlagSeverity = "info" | "warning" | "critical";
@@ -261,6 +304,8 @@ export type HospitalRequest = {
   caseId: string;
   hospitalId: string;
   hospitalName?: string;
+  distanceKm?: number;
+  etaMinutes?: number | null;
   status: HospitalRequestStatus;
   requestedBy: string;
   createdAt: string;
@@ -308,6 +353,7 @@ export type Annex5ReportDraft = {
   patientIdentity: Record<string, unknown>;
   symptomsAndOccurrence: Record<string, unknown>;
   patientAssessment: {
+    primarySurvey?: Record<string, unknown>;
     consciousness: Record<string, unknown>;
     pupils: Record<string, unknown>;
     vitalSigns: Array<Record<string, unknown>>;

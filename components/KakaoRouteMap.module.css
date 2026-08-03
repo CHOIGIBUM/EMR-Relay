@@ -10,7 +10,7 @@
 }
 
 .map {
-  min-height: 235px;
+  min-height: 100%;
 }
 
 .fallback {
@@ -26,20 +26,21 @@
   background: linear-gradient(135deg, #e8f2f1, #dfeaec);
 }
 
-.fallback strong { font-size: 12px; }
-.fallback small { max-width: 220px; font-size: 9px; line-height: 1.5; }
+.fallback strong { font-size: 13px; }
+.fallback small { max-width: 220px; font-size: 11px; line-height: 1.45; }
 
 .openDirections {
   position: absolute;
   right: 12px;
   bottom: 12px;
   z-index: 3;
-  padding: 8px 10px;
+  min-height: 38px;
+  padding: 8px 11px;
   display: inline-flex;
   align-items: center;
   gap: 5px;
   color: #fff;
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 800;
   text-decoration: none;
   border-radius: 9px;

@@ -19,6 +19,21 @@ function optionalText(payload: Record<string, unknown>, key: string, max: number
   }
 }
 
+function optionalNumber(
+  payload: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+  issues: string[],
+  allowNull = false,
+) {
+  const value = payload[key];
+  if (value === undefined || (allowNull && value === null)) return;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    issues.push(`${key}는 ${min}~${max} 범위의 숫자여야 합니다.`);
+  }
+}
+
 function validatePayload(type: CaseEventType, payload: Record<string, unknown>) {
   const issues: string[] = [];
   switch (type) {
@@ -39,6 +54,8 @@ function validatePayload(type: CaseEventType, payload: Record<string, unknown>) 
       requiredId(payload, "requestId", issues);
       requiredId(payload, "hospitalId", issues);
       optionalText(payload, "hospitalName", 160, issues);
+      optionalNumber(payload, "distanceKm", 0, 2_000, issues);
+      optionalNumber(payload, "etaMinutes", 0, 1_440, issues, true);
       break;
     case "HOSPITAL_REQUEST_VIEWED":
     case "HANDOFF_ACCEPTED":

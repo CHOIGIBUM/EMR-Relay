@@ -19,12 +19,17 @@
             "type": "string",
             "enum": [
               "patient.age", "patient.sex", "symptoms.chiefComplaint", "symptoms.onsetAt",
-              "symptoms.chestPain", "symptoms.associated", "consciousness.avpu",
+              "symptoms.chestPain", "symptoms.chestPainNrs", "symptoms.chestPainQuality",
+              "symptoms.chestPainRadiation", "symptoms.associated", "consciousness.avpu",
               "vitals.systolicBp", "vitals.diastolicBp", "vitals.pulse",
               "vitals.respiratoryRate", "vitals.spo2", "vitals.temperature", "vitals.glucose",
-              "history.conditions", "history.medications", "history.allergies", "assessment.ecg",
+              "history.conditions", "history.medications", "history.allergies",
+              "assessment.airway", "assessment.breathing", "assessment.circulation", "assessment.ecg",
               "assessment.fieldImpression", "treatment.oxygen", "treatment.medications",
-              "treatment.procedures", "transport.reassessment"
+              "treatment.procedures", "reassessment.systolicBp", "reassessment.diastolicBp",
+              "reassessment.pulse", "reassessment.respiratoryRate", "reassessment.spo2",
+              "reassessment.temperature", "reassessment.glucose", "reassessment.avpu",
+              "transport.reassessment"
             ]
           },
           "value": {

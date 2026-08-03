@@ -182,7 +182,19 @@ test("hospital directory fixture is reference data, not an acceptance decision",
   for (const hospital of payload.hospitals) {
     const keys = Object.keys(hospital);
     assert.ok(!keys.some((key) => /^(?:accepted|acceptance|realtimeAcceptance|autoRecommended)$/i.test(key)));
+    assert.equal(typeof hospital.route_is_live, "boolean");
+    assert.equal(typeof hospital.is_road_route, "boolean");
+    if (!hospital.is_road_route) assert.equal(hospital.eta_minutes, null);
   }
+});
+
+test("operational hospital lookup uses the reported scene before requesting device GPS", () => {
+  const provider = [...sources].find(([file]) => file.replaceAll("\\", "/") === "components/DemoContext.tsx")?.[1] ?? "";
+  const sceneLookup = provider.indexOf("const sceneLatitude = scenario.sceneLocation?.latitude ?? scenario.latitude");
+  const geolocationLookup = provider.indexOf('if (!("geolocation" in navigator))');
+  assert.ok(sceneLookup >= 0 && geolocationLookup > sceneLookup);
+  assert.match(provider, /eta:\s*hospital\.eta_minutes === null \? "ETA 미제공"/);
+  assert.doesNotMatch(provider, /location:\s*current\.location === "현장 위치 확인 필요" \? "현재 GPS 위치"/);
 });
 
 test("operational workspaces start empty and never merge the cardiovascular demo fixture", () => {
@@ -242,5 +254,25 @@ test("a hospital without an assigned request sees an idle queue instead of an ac
   assert.match(provider, /setConnection\("error"\);\s*setWaitingForRequest\(false\);\s*setSyncError\(error\s+instanceof\s+Error/);
   assert.match(provider, /if\s*\(!remoteEnabled\s*\|\|\s*operationalRole\s*!==\s*"paramedic"\)\s*return;/);
   assert.match(provider, /nextConnection\s*===\s*"connected"\)\s*void\s+refresh\(\)/);
-  assert.match(hospital, /sync\.waitingForRequest\s*\?\s*"요청 대기"/);
+  assert.match(hospital, /if\s*\(!requestVisible\)[\s\S]*?<h1>수용 요청 대기<\/h1>/);
+  assert.match(workspace, /showCaseContext\s*&&\s*<div className=\{styles\.case\}>/);
+});
+
+test("hospital replies require a fresh explicit choice and show no invented arrival guidance", () => {
+  const source = (wanted) => [...sources].find(([file]) => file.replaceAll("\\", "/") === wanted)?.[1] ?? "";
+  const hospital = source("components/HospitalConsole.tsx");
+  const control = source("components/ControlConsole.tsx");
+  const provider = source("components/DemoContext.tsx");
+  const demoData = source("lib/cardioDemoData.ts");
+
+  assert.match(hospital, /useState<string\[\]>\(\[\]\)/);
+  assert.match(hospital, /const \[declineReason, setDeclineReason\] = useState\(""\)/);
+  assert.match(hospital, /if \(next === "info"\) setInfoFields\(\[\]\)/);
+  assert.match(hospital, /if \(next === "decline"\) setDeclineReason\(""\)/);
+  assert.match(hospital, /disabled=\{!infoFields\.length\}/);
+  assert.match(hospital, /disabled=\{!declineReason\.trim\(\)\}/);
+
+  for (const current of [hospital, control, provider, demoData]) {
+    assert.doesNotMatch(current, /구급차 출입구|도착 전 구급대 전화|도착 전 연락 요청|해당 팀 호출/);
+  }
 });

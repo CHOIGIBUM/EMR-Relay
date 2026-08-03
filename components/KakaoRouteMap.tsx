@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ExternalLink, MapPinned } from "lucide-react";
+import { buildKakaoDirectionsLink, type Coordinate } from "@/lib/routeReference";
 import styles from "./KakaoRouteMap.module.css";
-
-type Coordinate = { latitude: number; longitude: number };
 
 type KakaoMapInstance = { setBounds: (bounds: unknown) => void; relayout: () => void };
 type KakaoMapsApi = {
@@ -46,7 +45,15 @@ function loadKakaoMaps(appKey: string) {
   });
 }
 
-export default function KakaoRouteMap({ origin, destination, destinationName }: { origin: Coordinate; destination: Coordinate; destinationName: string }) {
+export type KakaoRouteMapProps = {
+  origin: Coordinate;
+  destination: Coordinate;
+  destinationName: string;
+  originName?: string;
+  path?: readonly Coordinate[];
+};
+
+export default function KakaoRouteMap({ origin, destination, destinationName, originName = "출발지", path }: KakaoRouteMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const appKey = process.env.NEXT_PUBLIC_KAKAO_MAP_JAVASCRIPT_KEY?.trim() ?? "";
@@ -62,9 +69,12 @@ export default function KakaoRouteMap({ origin, destination, destinationName }: 
       const start = new maps.LatLng(origin.latitude, origin.longitude);
       const end = new maps.LatLng(destination.latitude, destination.longitude);
       const map = new maps.Map(containerRef.current, { center: start, level: 7 });
-      new maps.Marker({ map, position: start, title: "구급차 현재 위치" });
+      new maps.Marker({ map, position: start, title: originName });
       new maps.Marker({ map, position: end, title: destinationName });
-      new maps.Polyline({ map, path: [start, end], strokeWeight: 5, strokeColor: "#0b8d99", strokeOpacity: 0.82, strokeStyle: "solid" });
+      const roadPath = (path ?? []).map((point) => new maps.LatLng(point.latitude, point.longitude));
+      if (roadPath.length > 1) {
+        new maps.Polyline({ map, path: roadPath, strokeWeight: 5, strokeColor: "#0b8d99", strokeOpacity: 0.82, strokeStyle: "solid" });
+      }
       const bounds = new maps.LatLngBounds();
       bounds.extend(start);
       bounds.extend(end);
@@ -75,13 +85,13 @@ export default function KakaoRouteMap({ origin, destination, destinationName }: 
       if (!cancelled) setStatus("unavailable");
     });
     return () => { cancelled = true; };
-  }, [appKey, destination.latitude, destination.longitude, destinationName, origin.latitude, origin.longitude]);
+  }, [appKey, destination.latitude, destination.longitude, destinationName, origin.latitude, origin.longitude, originName, path]);
 
-  const directionsUrl = `https://map.kakao.com/link/to/${encodeURIComponent(destinationName)},${destination.latitude},${destination.longitude}`;
+  const directionsUrl = buildKakaoDirectionsLink({ ...destination, name: destinationName });
 
   return (
     <div className={styles.shell} data-status={status}>
-      <div className={styles.map} ref={containerRef} role="img" aria-label={`현재 위치에서 ${destinationName}까지의 카카오 지도`} />
+      <div className={styles.map} ref={containerRef} role="img" aria-label={`${originName}에서 ${destinationName}까지의 카카오 지도`} />
       {status !== "ready" ? (
         <div className={styles.fallback}>
           <MapPinned size={26} />

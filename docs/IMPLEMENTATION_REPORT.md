@@ -30,7 +30,7 @@ AI가 진단, 병원 추천 점수, 수용 가능성 예측, 최종 이송 결�
 
 Amplify 주소는 외부에서 열 수 있지만 역할 화면과 업무 API는 Cognito PKCE 로그인, JWT 역할, 사건·병원 객체 권한 검사를 모두 통과해야 한다.
 
-운영 시연 사건은 `GW-CARDIO-051`을 사용한다. 이 사건은 `ASSIGNED v1`, 임상 사실 0건, 병원 문의 0건인 깨끗한 시작 상태다. `GW-CARDIO-050`은 전체 파이프라인 검증을 완료한 보관용 E2E 사건이며, 후보 병원 제한 수정 전에 생성된 이력이 있으므로 UI 시연에는 사용하지 않는다.
+운영 시연 사건은 `GW-CARDIO-052`를 사용한다. 이 사건은 실제 속초 출동지·현장 주소를 포함한 `ASSIGNED v1`, 임상 사실 0건, 병원 문의 0건의 깨끗한 시작 상태로 준비한다. `GW-CARDIO-050`은 전체 파이프라인 검증을 완료한 보관용 E2E 사건이다.
 
 ## 3. 배포 아키텍처
 
@@ -230,8 +230,8 @@ Lambda는 Node.js 22, arm64, 512 MB, 30초로 구성했다. DynamoDB는 on-deman
 - AgentCore 실호출: `PENDING_REVIEW`, human review 필수, authoritative false, 3 agent, 18 tool calls, PHI trace false.
 - 병원 참고정보 실호출: 속초의료원은 `NMC+HIRA+KAKAO`, 약 1.8 km·6분으로 반환됐고 수용 상태는 `not_provided`였다.
 - WebSocket probe: TLS `wss` 연결 성공, 일회용 ticket 소비 성공.
-- 실제 브라우저 Cognito PKCE 로그인: 구급대원·상황실·병원 3개 역할 계정 모두 성공. 구급대원은 `GW-CARDIO-051`과 `연결됨` 상태를 확인했고, 상황실은 진행 사건 0건, 문의받지 않은 병원은 경고 대신 `수용 요청 대기` 상태를 표시했다.
-- 운영 사건 `GW-CARDIO-051`: `ASSIGNED v1`, 배정 이벤트만 존재, 확정 임상 사실·문의·이송지 없음. 상황실과 배정 구급대원 조회는 200, 문의받지 않은 병원은 403.
+- 실제 브라우저 Cognito PKCE 로그인: 구급대원·상황실·병원 3개 역할 계정 모두 성공. 구급대원은 `GW-CARDIO-052`와 `연결됨` 상태를 확인했고, 상황실은 진행 사건 0건, 문의받지 않은 병원은 경고 대신 `수용 요청 대기` 상태를 표시했다.
+- 운영 사건 `GW-CARDIO-052`: 실제 기관·주소 참고정보가 포함된 `ASSIGNED v1`이며 배정 이벤트만 존재하고, 확정 임상 사실·문의·이송지는 없다. 상황실과 배정 구급대원 조회는 200, 문의받지 않은 병원은 403.
 - 보관용 E2E 사건 `GW-CARDIO-050`: 전체 lifecycle `COMPLETE v18`, 병원 회신, 최초·재평가 확정, 보고서 `FINALIZED v3`, FHIR outbox `PUBLISHED`, `FHIR_PUBLISHED` 이벤트 확인.
 - S3: 위 사건의 최종 HTML·JSON 2개 객체 확인.
 - HealthLake: 최종 보고서의 FHIR transaction 발행 완료, datastore `ACTIVE`.

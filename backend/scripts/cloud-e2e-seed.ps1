@@ -1,4 +1,4 @@
-param(
+﻿param(
   [string]$Profile = "ems-relay-cgb",
   [string]$Region = "us-west-2",
   [string]$StackName = "ems-relay-backend",
@@ -23,8 +23,8 @@ if (-not $Apply) {
   throw "This script changes the deployed demo environment. Re-run with -Apply."
 }
 if ($PrepareInteractiveCase -or $AgentProbe -or $TranscribeProbe) {
-  if ($CaseId -ne "GW-CARDIO-051") {
-    throw "The interactive cloud case is intentionally scoped to GW-CARDIO-051."
+  if ($CaseId -notmatch '^GW-CARDIO-05[1-9]$') {
+    throw "Interactive cloud cases must use an isolated GW-CARDIO-051 through GW-CARDIO-059 identifier."
   }
 } elseif ($CaseId -ne "GW-CARDIO-050") {
   throw "The completed cloud seed is intentionally scoped to GW-CARDIO-050."
@@ -225,16 +225,18 @@ if ($PrepareInteractiveCase) {
       expectedVersion = 0
       payload = [ordered]@{
         assignedParamedicIds = @($paramedic.Sub)
-        scenario = "65-74세 추정 여성 · 흉통·호흡곤란 · 속초시 합성 신고"
+        scenario = "65-74세 추정 여성 · 흉통·호흡곤란 · 속초관광수산시장"
         agency = "강원특별자치도 소방본부"
-        unitId = "강원119구급대07"
+        unitId = "영랑119안전센터 구급대"
         vehicleNumber = "강원12가1190"
         reportedAt = (Get-IsoTimestamp)
         dispatchSummary = "65-74세 추정 여성, 흉통과 호흡곤란"
         estimatedAgeBand = "65-74"
         estimatedSex = "여성 추정"
-        reportedAddress = "강원특별자치도 속초시 중앙로 00 (합성 주소)"
-        reportedLocation = @{ latitude = 38.2070; longitude = 128.5918 }
+        unitBase = @{ name = "영랑119안전센터"; address = "강원특별자치도 속초시 번영로 188"; latitude = 38.2154164233856; longitude = 128.59031570815 }
+        reportedPlaceName = "속초관광수산시장"
+        reportedAddress = "강원특별자치도 속초시 중앙로147번길 16"
+        reportedLocation = @{ latitude = 38.204542733975174; longitude = 128.5902457350099 }
         source = "synthetic_119_dispatch"
       }
     }
