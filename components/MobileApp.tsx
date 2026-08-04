@@ -53,8 +53,9 @@ import {
   voiceProposalToPttUpdate,
 } from "@/lib/emsApi";
 import type { EmsApiTransport, RouteReferenceResponse, VoiceProposalResponse } from "@/lib/emsApiTypes";
+import { summarizeActionableVoiceWarnings } from "@/lib/voiceWarningSummary";
 import { currentAccessToken } from "@/lib/cognitoAuth";
-import { OPERATIONAL_CONFIG } from "@/lib/operationalApi";
+import { confirmDirectFacts, OPERATIONAL_CONFIG } from "@/lib/operationalApi";
 import { useTranscribePtt } from "@/hooks/useTranscribePtt";
 import { useAuth } from "@/components/auth/AuthProvider";
 import styles from "./MobileApp.module.css";
@@ -63,6 +64,13 @@ type Tab = "field" | "patient" | "hospital" | "handoff";
 type VoiceMode = "listening" | "stopping" | "processing" | "review" | null;
 type HospitalCandidateStatus = "available" | "locked" | "pending" | "info" | "accepted" | "declined" | "confirmed";
 type AssessmentStep = 1 | 2 | 3;
+
+type DirectAssessmentFact = {
+  path: string;
+  value: string | number | boolean | null | string[];
+  observedAt?: string;
+  sourceText: string;
+};
 
 type DirectAssessmentDraft = {
   airway: "" | "개방" | "확보 필요";
@@ -182,6 +190,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
   const [assessmentStep, setAssessmentStep] = useState<AssessmentStep>(1);
   const [assessmentDraft, setAssessmentDraft] = useState<DirectAssessmentDraft>(emptyAssessmentDraft);
   const [manualInputError, setManualInputError] = useState<string | null>(null);
+  const [isSavingManual, setIsSavingManual] = useState(false);
   const [sceneRoute, setSceneRoute] = useState<RouteReferenceResponse | null>(null);
   const [transportRoute, setTransportRoute] = useState<RouteReferenceResponse | null>(null);
   const [reassessmentDraft, setReassessmentDraft] = useState<VitalValues>(() => operational
@@ -201,6 +210,7 @@ export default function MobileApp({ operational = false }: { operational?: boole
   const voiceStopArmTimerRef = useRef<number | null>(null);
   const suppressVoiceClickRef = useRef(false);
   const transcribe = useTranscribePtt();
+  const actionableVoiceWarnings = summarizeActionableVoiceWarnings(voiceResult?.response.warnings ?? []);
   const scriptedPtt = !operational || OPERATIONAL_CONFIG.scriptedPtt;
   const callingHospital = HOSPITALS.find((hospital) => hospital.id === callingHospitalId) ?? null;
   const callerPhone = SCENARIO.callerPhone.replace(/[^\d+]/g, "");
@@ -472,12 +482,131 @@ export default function MobileApp({ operational = false }: { operational?: boole
     } as const;
   };
 
+  const buildManualFacts = (step: AssessmentStep): { facts: DirectAssessmentFact[] } | { error: string } => {
+    const observedAt = new Date().toISOString();
+    if (step === 1) {
+      if (!assessmentDraft.airway || !assessmentDraft.breathing || !assessmentDraft.circulation
+        || !assessmentDraft.chiefComplaint.trim() || state.avpu === "미확인") {
+        return { error: "ABC, AVPU, 주호소를 모두 입력하세요." };
+      }
+      return {
+        facts: [
+          { path: "assessment.airway", value: assessmentDraft.airway, observedAt, sourceText: `구급대원 직접 확인: 기도 ${assessmentDraft.airway}` },
+          { path: "assessment.breathing", value: assessmentDraft.breathing, observedAt, sourceText: `구급대원 직접 확인: 호흡 ${assessmentDraft.breathing}` },
+          { path: "assessment.circulation", value: assessmentDraft.circulation, observedAt, sourceText: `구급대원 직접 확인: 순환 ${assessmentDraft.circulation}` },
+          { path: "consciousness.avpu", value: state.avpu, observedAt, sourceText: `구급대원 직접 확인: AVPU ${state.avpu}` },
+          { path: "symptoms.chiefComplaint", value: assessmentDraft.chiefComplaint.trim(), observedAt, sourceText: `구급대원 직접 입력: 주호소 ${assessmentDraft.chiefComplaint.trim()}` },
+        ],
+      };
+    }
+
+    if (step === 2) {
+      if (!assessmentDraft.onsetAt || !assessmentDraft.painNrs || !assessmentDraft.painQuality
+        || !assessmentDraft.painRadiation || !assessmentDraft.associatedSymptoms.trim()) {
+        return { error: "발생시각, NRS, 흉통 양상, 방사통, 동반증상을 입력하세요." };
+      }
+      const associated = assessmentDraft.associatedSymptoms
+        .split(/[,·]/u)
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const facts: DirectAssessmentFact[] = [
+        { path: "symptoms.onsetAt", value: assessmentDraft.onsetAt, observedAt, sourceText: `구급대원 직접 입력: 증상 발생시각 ${assessmentDraft.onsetAt}` },
+        { path: "symptoms.chestPainNrs", value: Number(assessmentDraft.painNrs), observedAt, sourceText: `구급대원 직접 입력: 흉통 NRS ${assessmentDraft.painNrs}` },
+        { path: "symptoms.chestPainQuality", value: assessmentDraft.painQuality, observedAt, sourceText: `구급대원 직접 입력: 흉통 양상 ${assessmentDraft.painQuality}` },
+        { path: "symptoms.chestPainRadiation", value: assessmentDraft.painRadiation, observedAt, sourceText: `구급대원 직접 입력: 방사통 ${assessmentDraft.painRadiation}` },
+        { path: "symptoms.associated", value: associated, observedAt, sourceText: `구급대원 직접 입력: 동반증상 ${assessmentDraft.associatedSymptoms.trim()}` },
+      ];
+      if (assessmentDraft.history.trim()) facts.push({
+        path: "history.conditions",
+        value: [assessmentDraft.history.trim()],
+        observedAt,
+        sourceText: `구급대원 직접 입력: 과거력 ${assessmentDraft.history.trim()}`,
+      });
+      if (assessmentDraft.medication.trim()) facts.push({
+        path: "history.medications",
+        value: [assessmentDraft.medication.trim()],
+        observedAt,
+        sourceText: `구급대원 직접 입력: 복용약 ${assessmentDraft.medication.trim()}`,
+      });
+      if (assessmentDraft.allergy.trim()) facts.push({
+        path: "history.allergies",
+        value: assessmentDraft.allergy.trim(),
+        observedAt,
+        sourceText: `구급대원 직접 입력: 알레르기 ${assessmentDraft.allergy.trim()}`,
+      });
+      return { facts };
+    }
+
+    if (!Object.values(state.vitals).every((value) => value.trim())) {
+      return { error: "BP, PR, RR, SpO₂, 체온, 혈당을 모두 입력하세요." };
+    }
+    const bpMatch = state.vitals.bp.trim().match(/^(\d{2,3})\s*\/\s*(\d{2,3})$/u);
+    if (!bpMatch) return { error: "혈압은 수축기/이완기 형식으로 입력하세요. 예: 163/90" };
+    const numericVitals = {
+      systolic: Number(bpMatch[1]),
+      diastolic: Number(bpMatch[2]),
+      pulse: Number(state.vitals.pr),
+      respiratoryRate: Number(state.vitals.rr),
+      spo2: Number(state.vitals.spo2),
+      temperature: Number(state.vitals.temp),
+      glucose: Number(state.vitals.glucose),
+    };
+    if (Object.values(numericVitals).some((value) => !Number.isFinite(value))) {
+      return { error: "활력징후는 숫자로 입력하세요." };
+    }
+    const facts: DirectAssessmentFact[] = [
+      { path: "vitals.systolicBp", value: numericVitals.systolic, observedAt, sourceText: `구급대원 직접 입력: 수축기혈압 ${numericVitals.systolic} mmHg` },
+      { path: "vitals.diastolicBp", value: numericVitals.diastolic, observedAt, sourceText: `구급대원 직접 입력: 이완기혈압 ${numericVitals.diastolic} mmHg` },
+      { path: "vitals.pulse", value: numericVitals.pulse, observedAt, sourceText: `구급대원 직접 입력: 맥박 ${numericVitals.pulse}회/분` },
+      { path: "vitals.respiratoryRate", value: numericVitals.respiratoryRate, observedAt, sourceText: `구급대원 직접 입력: 호흡수 ${numericVitals.respiratoryRate}회/분` },
+      { path: "vitals.spo2", value: numericVitals.spo2, observedAt, sourceText: `구급대원 직접 입력: SpO₂ ${numericVitals.spo2}%` },
+      { path: "vitals.temperature", value: numericVitals.temperature, observedAt, sourceText: `구급대원 직접 입력: 체온 ${numericVitals.temperature}℃` },
+      { path: "vitals.glucose", value: numericVitals.glucose, observedAt, sourceText: `구급대원 직접 입력: 혈당 ${numericVitals.glucose} mg/dL` },
+    ];
+    if (assessmentDraft.interventions.trim()) facts.push({
+      path: "treatment.procedures",
+      value: [assessmentDraft.interventions.trim()],
+      observedAt,
+      sourceText: `구급대원 직접 입력: 시행 처치 ${assessmentDraft.interventions.trim()}`,
+    });
+    return { facts };
+  };
+
   const submitManualAssessment = () => {
     const pendingUpdate = nextPttUpdate;
     if (!pendingUpdate || pendingUpdate.sequence !== assessmentStep) {
       setManualInputError("앞 단계의 확인을 먼저 완료하세요.");
       return;
     }
+
+    if (sync.mode === "remote") {
+      const structured = buildManualFacts(assessmentStep);
+      if ("error" in structured) {
+        setManualInputError(structured.error);
+        return;
+      }
+      const submittedStep = assessmentStep;
+      setManualInputError(null);
+      setVoiceError(null);
+      setVoiceConfirmError(null);
+      setIsSavingManual(true);
+      void confirmDirectFacts(SCENARIO.sourceCaseId, {
+        expectedVersion: sync.confirmedVersion,
+        kind: "initial",
+        facts: structured.facts,
+      })
+        .then(async () => {
+          await sync.refresh();
+          if (submittedStep < 3) setAssessmentStep((submittedStep + 1) as AssessmentStep);
+          notify(`${structured.facts.length}개 항목을 확인값으로 저장했습니다.`);
+        })
+        .catch((error: unknown) => {
+          setManualInputError(error instanceof Error ? error.message : "직접 입력값을 저장하지 못했습니다.");
+        })
+        .finally(() => setIsSavingManual(false));
+      return;
+    }
+
     const manual = buildManualTranscript(assessmentStep);
     if ("error" in manual && manual.error) {
       setManualInputError(manual.error);
@@ -897,11 +1026,14 @@ export default function MobileApp({ operational = false }: { operational?: boole
 
           {!stepComplete && (
             <div className={styles.assessmentActions}>
-              <button type="button" className={styles.manualConfirm} disabled={!canSubmitStep || voiceMode !== null} onClick={submitManualAssessment}><ClipboardCheck size={18} /> 직접 입력 정리</button>
+              <button type="button" className={styles.manualConfirm} disabled={!canSubmitStep || voiceMode !== null || isSavingManual} onClick={submitManualAssessment}>
+                {isSavingManual ? <RefreshCw className={styles.spinning} size={18} /> : <ClipboardCheck size={18} />}
+                {isSavingManual ? "확인값 저장 중" : sync.mode === "remote" ? "이 단계 확인 및 저장" : "직접 입력 정리"}
+              </button>
               <button
                 type="button"
                 className={styles.inlinePtt}
-                disabled={!canSubmitStep || voiceMode !== null}
+                disabled={!canSubmitStep || voiceMode !== null || isSavingManual}
                 onPointerDown={handlePointerDown}
                 onPointerUp={handlePointerUp}
                 onPointerCancel={handlePointerCancel}
@@ -1328,8 +1460,8 @@ export default function MobileApp({ operational = false }: { operational?: boole
                 <h2>{voiceResult.update.title} 변경안을 확인하세요</h2>
                 <p>{voiceResult.response.review_summary.message} 선택한 값만 구급대원 확인 정보로 반영됩니다.</p>
                 <div className={styles.transcriptBox}>“{voiceResult.update.transcript}”</div>
-                {voiceResult.response.warnings.length > 0 && (
-                  <div className={styles.warningBox}><AlertTriangle size={17} /><span><strong>확인 필요 {voiceResult.response.warnings.length}건</strong><small>{voiceResult.response.warnings.map((warning) => warning.message).join(" · ")}</small></span></div>
+                {actionableVoiceWarnings.count > 0 && (
+                  <div className={styles.warningBox}><AlertTriangle size={17} /><span><strong>확인 필요 {actionableVoiceWarnings.count}건</strong><small>{actionableVoiceWarnings.messages.slice(0, 2).join(" · ")}{actionableVoiceWarnings.messages.length > 2 ? ` · 외 ${actionableVoiceWarnings.messages.length - 2}건` : ""}</small></span></div>
                 )}
                 {voiceConfirmError && (
                   <div className={styles.warningBox} role="alert"><AlertTriangle size={17} /><span><strong>확정하지 못했습니다</strong><small>{voiceConfirmError}</small></span></div>

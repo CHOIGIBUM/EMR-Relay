@@ -149,6 +149,8 @@ export type AgentRequest = {
   observedAt?: string;
   source: "ptt" | "manual" | "asr_test";
   requestedBy: string;
+  updateId?: string;
+  phase?: "dispatch" | "scene" | "transport" | "reassessment" | "handoff";
 };
 
 export type ConfirmDecision = {

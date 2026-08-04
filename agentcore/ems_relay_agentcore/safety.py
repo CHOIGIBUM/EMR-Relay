@@ -94,18 +94,25 @@ def verify_draft(
         verified.append(candidate)
 
     verified_unknowns: list[ExtractionUnknown] = []
+    unsupported_unknown_count = 0
     for unknown in draft.unknowns:
         if not unknown.evidence or unknown.evidence not in request.transcript:
-            warnings.append(
-                WarningItem(
-                    code="UNKNOWN_WITHOUT_EVIDENCE",
-                    severity="warning",
-                    field=unknown.field,
-                    message="원문 근거가 없는 미상 항목은 전달 목록에서 제외했습니다.",
-                )
-            )
+            unsupported_unknown_count += 1
             continue
         verified_unknowns.append(unknown)
 
-    return verified, verified_unknowns, warnings
+    # Model-generated placeholders for absent fields are safely discarded. They
+    # are one extraction-quality signal, not many user input errors.
+    if unsupported_unknown_count:
+        warnings.append(
+            WarningItem(
+                code="UNSUPPORTED_UNKNOWNS_IGNORED",
+                severity="info",
+                message=(
+                    f"원문 근거가 없는 미상 항목 {unsupported_unknown_count}건을 "
+                    "전달 목록에서 제외했습니다."
+                ),
+            )
+        )
 
+    return verified, verified_unknowns, warnings

@@ -7,10 +7,13 @@ import pytest
 from langgraph.graph import END, START
 from pydantic import ValidationError
 
-from ems_relay_agentcore.invariants import enforce_proposal_only
+import ems_relay_agentcore.workflow as workflow_module
 from ems_relay_agentcore.fallback import deterministic_fallback
+from ems_relay_agentcore.invariants import enforce_proposal_only
 from ems_relay_agentcore.model import REQUIRED_TEMPERATURE, get_model_settings
+from ems_relay_agentcore.prompts import extraction_user_prompt
 from ems_relay_agentcore.schemas import (
+    AgentRequest,
     AgentResponse,
     CompositionPlan,
     ExtractionDraft,
@@ -97,6 +100,66 @@ def test_required_graph_order_is_explicit() -> None:
         ("evidence_safety_reviewer", "handoff_proposal_composer"),
         ("handoff_proposal_composer", END),
     }
+
+
+def test_default_graph_calls_only_the_model_backed_extractor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    class CountingExtractor:
+        def extract(self, _request: Any) -> ExtractionDraft:
+            nonlocal calls
+            calls += 1
+            return ExtractionDraft.model_validate(
+                {
+                    "changes": [
+                        {
+                            "path": "vitals.pulse",
+                            "value": 92,
+                            "unit": "/min",
+                            "certainty": "clear",
+                            "evidence": "맥박 92",
+                        }
+                    ]
+                }
+            )
+
+    monkeypatch.setattr(workflow_module, "ClaudeBedrockExtractor", CountingExtractor)
+    graph = workflow_module.build_graph()
+    result = graph.invoke(
+        {
+            "request": AgentRequest.model_validate(request_payload("맥박 92")),
+            "messages": [],
+        }
+    )
+
+    assert calls == 1
+    assert result["response"].proposal.changes[0].path == "vitals.pulse"
+    assert [item.agent for item in result["response"].trace.agents] == [
+        "korean_ems_fact_extractor",
+        "evidence_safety_reviewer",
+        "handoff_proposal_composer",
+    ]
+
+
+def test_extraction_prompt_accepts_a_non_restrictive_field_focus_hint() -> None:
+    payload = request_payload("통증은 7점이고 왼팔로 뻗칩니다.")
+    payload["context"]["metadata"] = {
+        "allowedFieldPaths": [
+            "symptoms.chestPainNrs",
+            "symptoms.chestPainRadiation",
+            "not.allowed",
+        ]
+    }
+
+    prompt = extraction_user_prompt(AgentRequest.model_validate(payload))
+
+    assert (
+        '<field_focus_hint>["symptoms.chestPainNrs","symptoms.chestPainRadiation"]'
+        "</field_focus_hint>"
+    ) in prompt
+    assert "retain any other explicit supported fact" in prompt
 
 
 def test_supported_extraction_returns_only_reviewable_proposal() -> None:
@@ -192,6 +255,28 @@ def test_non_verbatim_evidence_is_removed() -> None:
 
     assert result["proposal"]["changes"] == []
     assert any(warning["code"] == "EVIDENCE_NOT_FOUND" for warning in result["warnings"])
+
+
+def test_evidence_less_unknown_placeholders_are_coalesced_to_one_info_notice() -> None:
+    draft = {
+        "changes": [],
+        "unknowns": [
+            {
+                "field": "history.medications",
+                "reason": "입력에 없음",
+                "evidence": None,
+            }
+            for _ in range(20)
+        ],
+    }
+
+    result = invoke_workflow(request_payload("주호소는 흉통입니다."), StaticExtractor(draft))
+
+    assert result["unknowns"] == []
+    assert not any(item["code"] == "UNKNOWN_WITHOUT_EVIDENCE" for item in result["warnings"])
+    notices = [item for item in result["warnings"] if item["code"] == "UNSUPPORTED_UNKNOWNS_IGNORED"]
+    assert len(notices) == 1
+    assert notices[0]["severity"] == "info"
 
 
 def test_tools_normalize_units_and_mark_outside_reference_for_review() -> None:

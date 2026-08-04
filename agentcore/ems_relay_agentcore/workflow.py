@@ -15,9 +15,7 @@ from langgraph.prebuilt import ToolNode
 from .fallback import deterministic_fallback
 from .invariants import enforce_proposal_only
 from .model import (
-    ClaudeBedrockComposer,
     ClaudeBedrockExtractor,
-    ClaudeBedrockReviewer,
     Composer,
     DeterministicComposer,
     DeterministicReviewer,
@@ -514,16 +512,17 @@ def build_graph(
     reviewer: Reviewer | None = None,
     composer: Composer | None = None,
 ):
-    """Compile three role agents with a deterministic LangGraph ToolNode between them."""
+    """Compile one model extraction call plus deterministic safety and ordering roles.
 
-    injected_extractor = extractor is not None
+    Callers can still inject a model-backed reviewer or composer for offline
+    evaluation. They are intentionally not on the production critical path:
+    the reviewer only raises uncertainty from deterministic tool results and
+    the composer only returns a stable field order.
+    """
+
     selected_extractor = extractor or ClaudeBedrockExtractor()
-    selected_reviewer = reviewer or (
-        DeterministicReviewer() if injected_extractor else ClaudeBedrockReviewer()
-    )
-    selected_composer = composer or (
-        DeterministicComposer() if injected_extractor else ClaudeBedrockComposer()
-    )
+    selected_reviewer = reviewer or DeterministicReviewer()
+    selected_composer = composer or DeterministicComposer()
 
     graph = StateGraph(WorkflowState)
     graph.add_node("korean_ems_fact_extractor", _extraction_node(selected_extractor))

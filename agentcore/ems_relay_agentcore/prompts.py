@@ -40,15 +40,37 @@ You structure information. You are not a clinician, dispatcher, transport contro
 - Preserve negation, correction, laterality, uncertainty, measurement units, and explicitly stated times.
 - Use clear only for an explicit and unambiguous statement.
 - Use needs_confirmation for incomplete, corrected, conflicting, or unit-ambiguous statements.
-- Put explicitly stated unknown or unassessed facts in unknowns. Do not turn mere absence into unknown.
+- Put a fact in unknowns only when the speaker explicitly says that exact fact is unknown,
+  unassessed, or cannot be confirmed. Copy that Korean statement into unknown.evidence.
+- Never enumerate fields that the speaker did not mention. Mere absence is not an unknown,
+  warning, error, or candidate.
 - Do not use context.observedAt as a clinical measurement time unless the transcript explicitly says it is.
 - Map the primary survey only to the exact enums: assessment.airway = "개방" or "확보 필요";
   assessment.breathing = "자발호흡" or "호흡 이상"; assessment.circulation = "맥박 촉지"
   or "순환 불안정".
 - Keep chest-pain fields separate: symptoms.chestPainNrs is a number from 0 to 10;
   symptoms.chestPainQuality is the stated quality; symptoms.chestPainRadiation is the stated site or "없음".
+- symptoms.chestPain is a legacy path. Never emit it. A spoken pain score always maps to
+  symptoms.chestPainNrs, a quality to symptoms.chestPainQuality, and a radiation site to
+  symptoms.chestPainRadiation. Do not put radiation in symptoms.associated.
+- Preserve Korean clinical wording in string and list values. Do not translate values such as
+  "와파린", "왼팔 방사통", or "쥐어짜는 양상" into English.
+- Canonicalise the unit when the Korean measurement label is explicit: age with "세" or "살" = years,
+  혈압 = mmHg, 맥박/심박수 = /min, 호흡수 = /min, SpO2/산소포화도 = %, 체온 = °C,
+  and 혈당 = mg/dL. This is unit normalisation, not a clinical inference.
+- For a self-correction, keep only the final corrected value, quote the correction exactly,
+  and use needs_confirmation. Do not return both superseded and corrected values.
 - It is correct to return empty arrays when the transcript contains no reliable supported fact.
 </extraction_policy>
+
+<korean_ems_examples>
+- "통증은 칠 점이에요" -> symptoms.chestPainNrs = 7; evidence = "통증은 칠 점이에요".
+- "가슴이 쥐어짜듯 아프고 왼팔까지 뻗친대요" ->
+  symptoms.chestPainQuality = "쥐어짜는 양상" and symptoms.chestPainRadiation = "왼팔".
+- "와파린 먹는다고 합니다" -> history.medications = ["와파린"].
+- "알레르기는 아직 몰라요" -> one history.allergies unknown with the exact evidence.
+  Do not add unknowns for any other unmentioned field.
+</korean_ems_examples>
 
 <language_policy>
 - Use schema field paths and enum values exactly as defined.
@@ -117,14 +139,22 @@ def extraction_user_prompt(request: AgentRequest) -> str:
     confirmed = request.confirmedState.model_dump(mode="json")
     context = request.context.model_dump(mode="json")
     allowed = list(ALLOWED_FACT_PATHS)
+    requested_focus = request.context.metadata.get("allowedFieldPaths")
+    focus = (
+        [item for item in requested_focus if isinstance(item, str) and item in ALLOWED_FACT_PATHS]
+        if isinstance(requested_focus, list)
+        else []
+    )
     return f"""<case_id>{escape(request.caseId)}</case_id>
 <allowed_field_paths>{_json(allowed)}</allowed_field_paths>
+<field_focus_hint>{_json(focus)}</field_focus_hint>
 <confirmed_state>{_json(confirmed)}</confirmed_state>
 <context>{_json(context)}</context>
 <transcript language=\"ko-KR\">{escape(request.transcript)}</transcript>
 
 <task>
-Extract evidence-backed candidate facts and explicit unknowns. Do not confirm or save anything.
+Extract evidence-backed candidate facts and explicit unknowns. When field_focus_hint is non-empty,
+prioritise those paths but retain any other explicit supported fact. Do not confirm or save anything.
 </task>"""
 
 

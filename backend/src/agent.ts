@@ -22,6 +22,35 @@ const ALLOW_DIRECT_BEDROCK_FALLBACK = process.env.ALLOW_DIRECT_BEDROCK_FALLBACK 
 const bedrock = new BedrockRuntimeClient({ region: BEDROCK_REGION });
 const agentCore = new BedrockAgentCoreClient({ region: BEDROCK_REGION });
 
+const UPDATE_FIELD_FOCUS: Record<string, readonly string[]> = {
+  U01: [
+    "patient.age", "patient.sex", "symptoms.chiefComplaint", "consciousness.avpu",
+    "assessment.airway", "assessment.breathing", "assessment.circulation",
+  ],
+  U02: [
+    "symptoms.onsetAt", "symptoms.chestPainNrs", "symptoms.chestPainQuality",
+    "symptoms.chestPainRadiation", "symptoms.associated", "history.conditions",
+    "history.medications", "history.allergies",
+  ],
+  U03: [
+    "vitals.systolicBp", "vitals.diastolicBp", "vitals.pulse", "vitals.respiratoryRate",
+    "vitals.spo2", "vitals.temperature", "vitals.glucose", "assessment.ecg",
+    "assessment.fieldImpression", "treatment.oxygen", "treatment.medications",
+    "treatment.procedures",
+  ],
+  U04: [
+    "reassessment.systolicBp", "reassessment.diastolicBp", "reassessment.pulse",
+    "reassessment.respiratoryRate", "reassessment.spo2", "reassessment.temperature",
+    "reassessment.glucose", "reassessment.avpu", "transport.reassessment",
+    "assessment.fieldImpression",
+  ],
+};
+
+export function voiceFieldFocus(updateId?: string) {
+  const stage = updateId?.match(/-(U0[1-4])$/i)?.[1]?.toUpperCase();
+  return stage ? [...(UPDATE_FIELD_FOCUS[stage] ?? [])] : [];
+}
+
 const SYSTEM_PROMPT = `You are the EMS Relay Field Update Structuring Agent.
 
 <role>
@@ -117,10 +146,14 @@ function normalizeOutput(output: AgentModelOutput, request: AgentRequest, state:
 }
 
 function buildUserMessage(request: AgentRequest, state: ConfirmedState) {
+  const allowedFieldPaths = voiceFieldFocus(request.updateId);
   return `<request_metadata>${escapeXml(JSON.stringify({
     caseId: request.caseId,
     observedAt: request.observedAt ?? null,
     source: request.source,
+    updateId: request.updateId ?? null,
+    phase: request.phase ?? null,
+    allowedFieldPaths,
   }))}</request_metadata>
 <current_confirmed_state>${escapeXml(JSON.stringify(currentStateForPrompt(state)))}</current_confirmed_state>
 <transcript language="ko-KR">${escapeXml(request.transcript)}</transcript>
@@ -166,10 +199,15 @@ async function bodyToText(body: unknown) {
   throw new AgentOutputError("AgentCore 응답 본문을 읽을 수 없습니다.");
 }
 
-export function createAgentRuntimeSessionId() {
-  // AgentCore includes this identifier in its managed log-stream name.
-  // Keep it opaque so case identifiers never become log metadata.
-  return `ems-relay-${randomUUID()}`;
+export function createAgentRuntimeSessionId(caseId: string, now = Date.now()) {
+  // Reuse an opaque, case-scoped session for AgentCore's 15-minute idle window.
+  // This preserves runtime/model warm state without exposing a case identifier in logs.
+  const fifteenMinuteBucket = Math.floor(now / (15 * 60 * 1_000));
+  const opaqueKey = createHash("sha256")
+    .update(`${AGENT_RUNTIME_ARN}|${caseId}|${fifteenMinuteBucket}`, "utf8")
+    .digest("hex")
+    .slice(0, 40);
+  return `ems-relay-${opaqueKey}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -255,6 +293,7 @@ export function normalizeAgentCoreResponse(
 
 async function invokeAgentCore(request: AgentRequest, state: ConfirmedState) {
   const startedAt = Date.now();
+  const allowedFieldPaths = voiceFieldFocus(request.updateId);
   const payload = Buffer.from(JSON.stringify({
     caseId: request.caseId,
     transcript: request.transcript,
@@ -264,10 +303,12 @@ async function invokeAgentCore(request: AgentRequest, state: ConfirmedState) {
       requestedBy: request.requestedBy,
       locale: "ko-KR",
       observedAt: request.observedAt ?? null,
-      metadata: {},
+      updateId: request.updateId ?? null,
+      phase: request.phase ?? null,
+      metadata: { allowedFieldPaths },
     },
   }));
-  const runtimeSessionId = createAgentRuntimeSessionId();
+  const runtimeSessionId = createAgentRuntimeSessionId(request.caseId);
   const response = await agentCore.send(new InvokeAgentRuntimeCommand({
     agentRuntimeArn: AGENT_RUNTIME_ARN,
     ...(AGENT_RUNTIME_QUALIFIER ? { qualifier: AGENT_RUNTIME_QUALIFIER } : {}),

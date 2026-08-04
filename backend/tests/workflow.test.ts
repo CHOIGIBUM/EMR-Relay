@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { APIGatewayProxyEventV2, Context } from "aws-lambda";
-import { AgentOutputError, createAgentRuntimeSessionId, normalizeAgentCoreResponse } from "../src/agent.js";
+import { AgentOutputError, createAgentRuntimeSessionId, normalizeAgentCoreResponse, voiceFieldFocus } from "../src/agent.js";
 import { authorizeCommand, principalFromEvent } from "../src/auth.js";
 import { mapFinalizedReportToFhir } from "../src/fhir.js";
-import { handler } from "../src/handler.js";
+import { actionableAttentionCount, handler } from "../src/handler.js";
 import { renderAnnex5Html, REQUIRED_REPORT_REVIEW_FIELDS } from "../src/reportStore.js";
 import { validateDirectFactsRequest } from "../src/schemas.js";
 import type { AmbulanceActivityReport, ConfirmedState } from "../src/types.js";
@@ -97,6 +97,21 @@ test("validates the hospital route snapshot carried with a request", () => {
 test("accepts only the 16 kHz ko-KR PCM streaming contract", () => {
   assert.equal(validateTranscribeSession({ caseId: "GW-CARDIO-050", languageCode: "ko-KR", sampleRateHertz: 16000 }).ok, true);
   assert.equal(validateTranscribeSession({ caseId: "GW-CARDIO-050", sampleRateHertz: 48000 }).ok, false);
+});
+
+test("counts unique actionable review targets without double-counting warnings", () => {
+  assert.equal(actionableAttentionCount(
+    [
+      { field_path: "vitals.spo2", fact_status: "unconfirmed" },
+      { field_path: "vitals.pulse", fact_status: "proposed" },
+    ],
+    [
+      { code: "UNIT_MISSING", severity: "warning", field_paths: ["vitals.spo2"] },
+      { code: "UNIT_MISSING", severity: "warning", field_paths: ["vitals.spo2"] },
+      { code: "RUNTIME_NOTICE", severity: "info", field_paths: [] },
+      { code: "GENERAL_REVIEW", severity: "warning", field_paths: [] },
+    ],
+  ), 2);
 });
 
 test("validates human-confirmed structured vital signs before persistence", () => {
@@ -233,10 +248,28 @@ test("rejects an authoritative AgentCore response", () => {
   }, { caseId: "GW-CARDIO-050", transcript: "상태 확인", source: "ptt", requestedBy: "paramedic-01" }, { caseId: "GW-CARDIO-050", version: 0, facts: {} }), AgentOutputError);
 });
 
-test("uses an opaque AgentCore runtime session id without the case id", () => {
-  const sessionId = createAgentRuntimeSessionId();
-  assert.match(sessionId, /^ems-relay-[0-9a-f-]{36}$/);
+test("reuses an opaque AgentCore runtime session id within a 15-minute case window", () => {
+  const now = Date.parse("2026-08-04T09:05:00+09:00");
+  const sessionId = createAgentRuntimeSessionId("GW-CARDIO-050", now);
+  assert.equal(sessionId, createAgentRuntimeSessionId("GW-CARDIO-050", now + 5 * 60_000));
+  assert.notEqual(sessionId, createAgentRuntimeSessionId("GW-CARDIO-051", now));
+  assert.notEqual(sessionId, createAgentRuntimeSessionId("GW-CARDIO-050", now + 16 * 60_000));
+  assert.match(sessionId, /^ems-relay-[0-9a-f]{40}$/);
   assert.doesNotMatch(sessionId, /GW-CARDIO|CASE/i);
+});
+
+test("focuses each staged voice update without restricting unrecognised updates", () => {
+  assert.deepEqual(voiceFieldFocus("GW-CARDIO-050-U02"), [
+    "symptoms.onsetAt",
+    "symptoms.chestPainNrs",
+    "symptoms.chestPainQuality",
+    "symptoms.chestPainRadiation",
+    "symptoms.associated",
+    "history.conditions",
+    "history.medications",
+    "history.allergies",
+  ]);
+  assert.deepEqual(voiceFieldFocus("free-form-update"), []);
 });
 
 function finalizedReport(): AmbulanceActivityReport {

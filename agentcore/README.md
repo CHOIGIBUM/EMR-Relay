@@ -31,12 +31,14 @@ korean_ems_fact_extractor
   -> handoff_proposal_composer
 ```
 
-All three role agents use Claude Haiku 4.5 through Amazon Bedrock with temperature `0.3` in the
-default runtime. The extraction agent creates evidence-backed candidates. A LangGraph `ToolNode`
+Only the extraction role calls Claude Haiku 4.5 through Amazon Bedrock with temperature `0.3` in
+the default runtime. The extraction agent creates evidence-backed candidates. A LangGraph `ToolNode`
 runs structured unit normalisation, broad technical range validation, and exact evidence-span mapping.
-The reviewer may retain a candidate or increase its review requirement, but cannot add or rewrite a
-fact. The composer may only order already verified indexes; deterministic code creates IDs, evidence
-links, and the final summary. The runtime has no confirmation endpoint and no data-store client.
+The reviewer deterministically retains a candidate or raises its uncertainty from those tool results,
+and the composer deterministically orders already verified indexes. Optional model-backed reviewer and
+composer adapters remain available for offline evaluation but are not on the production request path.
+Deterministic code creates IDs, evidence links, and the final summary. The runtime has no confirmation
+endpoint and no data-store client.
 
 Tool calls expose only a candidate index. Clinical content is supplied as injected in-memory graph
 state. The returned trace contains tool names, result codes, indexes, and SHA-256 input fingerprints,

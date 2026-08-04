@@ -120,6 +120,12 @@ export function validateAgentRequest(value: unknown): ValidationResult<AgentRequ
   if (typeof value.source !== "string" || !SOURCES.has(value.source)) issues.push("source는 ptt, manual, asr_test 중 하나여야 합니다.");
   if (typeof value.requestedBy !== "string" || !USER_ID_PATTERN.test(value.requestedBy)) issues.push("requestedBy 형식이 올바르지 않습니다.");
   if (!validOptionalIsoDate(value.observedAt)) issues.push("observedAt은 시간대가 포함된 ISO 8601 형식이어야 합니다.");
+  if (value.updateId !== undefined && (typeof value.updateId !== "string" || !CASE_ID_PATTERN.test(value.updateId))) {
+    issues.push("updateId 형식이 올바르지 않습니다.");
+  }
+  if (value.phase !== undefined && !["dispatch", "scene", "transport", "reassessment", "handoff"].includes(String(value.phase))) {
+    issues.push("phase 형식이 올바르지 않습니다.");
+  }
 
   if (issues.length) return { ok: false, issues };
   const result: AgentRequest = {
@@ -129,6 +135,8 @@ export function validateAgentRequest(value: unknown): ValidationResult<AgentRequ
     requestedBy: value.requestedBy as string,
   };
   if (typeof value.observedAt === "string") result.observedAt = value.observedAt;
+  if (typeof value.updateId === "string") result.updateId = value.updateId;
+  if (typeof value.phase === "string") result.phase = value.phase as NonNullable<AgentRequest["phase"]>;
   return { ok: true, value: result };
 }
 

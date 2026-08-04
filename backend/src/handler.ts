@@ -73,6 +73,12 @@ function routeRequestId(event: APIGatewayProxyEventV2) {
   return event.pathParameters?.requestId?.trim() ?? "";
 }
 
+function phaseForVoiceUpdate(updateId: string) {
+  if (/-U04$/i.test(updateId)) return "reassessment" as const;
+  if (/-U0[1-3]$/i.test(updateId)) return "scene" as const;
+  return undefined;
+}
+
 function normalizeAgentBody(body: unknown, principal: AuthPrincipal, routeCaseId?: string) {
   if (!isRecord(body)) return body;
   if (routeCaseId || "case_id" in body || "update_id" in body) {
@@ -89,6 +95,8 @@ function normalizeAgentBody(body: unknown, principal: AuthPrincipal, routeCaseId
         observedAt: typeof body.observed_at === "string" ? body.observed_at : undefined,
         source: "ptt",
         requestedBy: principal.sub,
+        updateId,
+        phase: phaseForVoiceUpdate(updateId),
       },
       metadata: { updateId, clientEventId, transcript },
     };
@@ -141,6 +149,41 @@ function displayValue(value: unknown, unit?: string) {
   return unit ? `${text} ${unit}` : text;
 }
 
+type VoiceReviewUpdate = {
+  field_path: string;
+  fact_status: string;
+};
+
+type VoiceReviewWarning = {
+  code: string;
+  severity: string;
+  field_paths: string[];
+};
+
+/**
+ * Counts actionable review targets rather than adding candidate and warning
+ * rows. A warning for an already-unconfirmed field is therefore counted once;
+ * warning codes without a field remain independently actionable.
+ */
+export function actionableAttentionCount(
+  proposedUpdates: readonly VoiceReviewUpdate[],
+  warnings: readonly VoiceReviewWarning[],
+) {
+  const targets = new Set<string>();
+  for (const update of proposedUpdates) {
+    if (update.fact_status !== "proposed") targets.add(`field:${update.field_path}`);
+  }
+  for (const warning of warnings) {
+    if (warning.severity === "info") continue;
+    if (warning.field_paths.length) {
+      for (const fieldPath of warning.field_paths) targets.add(`field:${fieldPath}`);
+    } else {
+      targets.add(`code:${warning.code}`);
+    }
+  }
+  return targets.size;
+}
+
 function voiceResponse(
   result: Awaited<ReturnType<typeof createAgentProposal>>,
   metadata: { updateId: string; clientEventId: string; transcript: string },
@@ -161,14 +204,14 @@ function voiceResponse(
       observed_at: change.observedAt ?? null,
     },
   }));
-  const warnings = proposal.flags.map((flag) => ({
+  const warnings: VoiceReviewWarning[] = proposal.flags.map((flag) => ({
     code: flag.code,
-    severity: flag.severity === "critical" ? "error" : flag.severity,
+    severity: flag.severity === "critical" ? "error" : flag.severity as VoiceReviewWarning["severity"],
     message: flag.message,
     field_paths: flag.field ? [flag.field] : [],
   }));
   const unknownCount = proposedUpdates.filter((item) => item.fact_status === "unknown").length;
-  const attentionCount = proposedUpdates.filter((item) => item.fact_status !== "proposed").length + warnings.filter((item) => item.severity !== "info").length;
+  const attentionCount = actionableAttentionCount(proposedUpdates, warnings);
   return {
     request_id: metadata.clientEventId,
     case_id: proposal.caseId,
@@ -182,7 +225,7 @@ function voiceResponse(
       confirmable_count: proposedUpdates.length - unknownCount,
       attention_count: attentionCount,
       unknown_count: unknownCount,
-      message: attentionCount ? `변경안 ${proposedUpdates.length}건 중 ${attentionCount}건을 주의해서 확인하세요.` : `변경안 ${proposedUpdates.length}건을 확인한 뒤 반영하세요.`,
+      message: attentionCount ? `변경안 ${proposedUpdates.length}건 · 확인 필요 ${attentionCount}건` : `변경안 ${proposedUpdates.length}건을 확인한 뒤 반영하세요.`,
     },
     processed_at: proposal.createdAt,
     proposal_set_id: proposal.proposalId,
