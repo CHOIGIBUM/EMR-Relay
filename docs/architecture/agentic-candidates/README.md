@@ -11,6 +11,14 @@
 | [E안 · True Streaming Event Sourcing](e-true-streaming-event-sourcing.png) | Kinesis Data Streams로 실시간 처리하고 Firehose는 보관에 전용 | 진짜 스트리밍·재처리·이벤트 소싱 |
 | [F안 · FHIR-First Clinical Relay](f-fhir-first-clinical-relay.png) | 확정 환자정보를 표준 인계 패키지와 HealthLake 원장으로 동시 전환 | FHIR 표준 인계와 HealthLake 중심 USP |
 
+## I/O 읽는 법
+
+- 왼쪽 `IN →`: 구급대원의 수동 입력 또는 PTT 음성 입력
+- 오른쪽 `OUT →`: 병원 수용 담당자에게 전달되는 수용 문의
+- 오른쪽 `← IN`: 병원의 수용·추가정보·수용곤란 회신
+- 아래 초록 경로: 확정된 임상 이벤트의 Firehose → S3 → HealthLake 기록
+- 모든 연결선은 수평·수직 전용 포트로 고정되며, 생성 시 선 겹침·교차·노드 관통을 자동 검증합니다.
+
 ## 공통 설계 원칙
 
 - 병원 수용 요청·회신은 API Gateway/AppSync/DynamoDB의 저지연 운영 경로로 처리합니다.
