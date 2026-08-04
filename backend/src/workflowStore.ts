@@ -38,6 +38,7 @@ const EVENT_SUMMARIES: Record<CaseEventType, string> = {
   ARRIVED_SCENE: "현장에 도착했습니다.",
   PATIENT_CONTACT: "환자 접촉을 확인했습니다.",
   PATIENT_FACTS_CONFIRMED: "구급대원이 환자 정보를 확인했습니다.",
+  HOSPITAL_BROADCAST_STARTED: "인근 병원에 수용 가능 여부를 동시에 요청했습니다.",
   HOSPITAL_REQUEST_CREATED: "병원에 수용 문의를 전달했습니다.",
   HOSPITAL_REQUEST_VIEWED: "병원 담당자가 수용 문의를 열람했습니다.",
   ADDITIONAL_INFO_REQUESTED: "병원에서 추가 정보를 요청했습니다.",
@@ -49,10 +50,6 @@ const EVENT_SUMMARIES: Record<CaseEventType, string> = {
   ARRIVED_HOSPITAL: "병원에 도착했습니다.",
   HANDOFF_SENT: "환자 인계 정보를 전달했습니다.",
   HANDOFF_ACCEPTED: "병원 인수자가 인계를 확인했습니다.",
-  REPORT_DRAFTED: "구급활동일지 초안을 생성했습니다.",
-  REPORT_REVIEWED: "구급활동일지 검토를 저장했습니다.",
-  REPORT_FINALIZED: "구급활동일지를 최종 확정했습니다.",
-  FHIR_PUBLISHED: "확정된 인계 정보를 FHIR로 발행했습니다.",
 };
 
 function isStage(stage: unknown): stage is CaseStage {
@@ -69,6 +66,16 @@ function metaFromItem(item: Record<string, unknown> | undefined): CaseMeta | und
     createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date(0).toISOString(),
     updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString(),
     ...(typeof item.scenario === "string" ? { scenario: item.scenario } : {}),
+    ...(typeof item.reportTime === "string" ? { reportTime: item.reportTime } : {}),
+    ...(typeof item.reportSummary === "string" ? { reportSummary: item.reportSummary } : {}),
+    ...(typeof item.reportDetail === "string" ? { reportDetail: item.reportDetail } : {}),
+    ...(typeof item.estimatedAge === "string" ? { estimatedAge: item.estimatedAge } : {}),
+    ...(typeof item.estimatedSex === "string" ? { estimatedSex: item.estimatedSex } : {}),
+    ...(typeof item.reporter === "string" ? { reporter: item.reporter } : {}),
+    ...(typeof item.station === "string" ? { station: item.station } : {}),
+    ...(typeof item.sceneAddress === "string" ? { sceneAddress: item.sceneAddress } : {}),
+    ...(typeof item.sceneLatitude === "number" ? { sceneLatitude: item.sceneLatitude } : {}),
+    ...(typeof item.sceneLongitude === "number" ? { sceneLongitude: item.sceneLongitude } : {}),
     ...(typeof item.agency === "string" ? { agency: item.agency } : {}),
     ...(typeof item.unitId === "string" ? { unitId: item.unitId } : {}),
     ...(typeof item.vehicleNumber === "string" ? { vehicleNumber: item.vehicleNumber } : {}),
@@ -126,7 +133,6 @@ export async function getWorkflowCase(caseId: string) {
 export async function assertCaseAccess(principal: AuthPrincipal, caseId: string) {
   const { meta, hospitalRequests } = await getWorkflowCase(caseId);
   if (!meta) throw new StoreNotFoundError("사건을 찾을 수 없습니다.");
-  if (principal.roles.includes("admin") || principal.roles.includes("control")) return;
   if (principal.roles.includes("paramedic") && meta.assignedParamedicIds.includes(principal.sub)) return;
   if (principal.roles.includes("hospital") && principal.hospitalId
     && (meta.destinationHospitalId
@@ -153,6 +159,7 @@ function nextStage(current: CaseStage | undefined, type: CaseEventType): CaseSta
     case "PATIENT_FACTS_CONFIRMED":
       if (!current || !["PATIENT_CONTACT", "ASSESSING"].includes(current)) throw new StoreConflictError("환자 접촉 후 정보를 확인할 수 있습니다.");
       return "ASSESSING";
+    case "HOSPITAL_BROADCAST_STARTED":
     case "HOSPITAL_REQUEST_CREATED":
       if (!current || !["ASSESSING", "HOSPITAL_REQUESTED"].includes(current)) throw new StoreConflictError("환자 확인 후 병원에 문의할 수 있습니다.");
       return "HOSPITAL_REQUESTED";
@@ -177,9 +184,39 @@ function nextStage(current: CaseStage | undefined, type: CaseEventType): CaseSta
 }
 
 function requireParamedicAssignment(principal: AuthPrincipal, meta: CaseMeta | undefined, type: CaseEventType) {
-  if (principal.roles.includes("admin") || !principal.roles.includes("paramedic")) return;
+  if (!principal.roles.includes("paramedic")) return;
   if (type === "CASE_ASSIGNED") return;
   if (!meta?.assignedParamedicIds.includes(principal.sub)) throw new AuthorizationError("이 사건에 배정된 구급대원이 아닙니다.");
+}
+
+function createBroadcastHospitalRequests(
+  caseId: string,
+  command: CaseCommand,
+  principal: AuthPrincipal,
+  occurredAt: string,
+): HospitalRequest[] {
+  const responseExpiresAt = new Date(
+    Date.parse(occurredAt) + Number(command.payload.responseWindowSeconds) * 1_000,
+  ).toISOString();
+  const hospitals = command.payload.hospitals as Array<Record<string, unknown>>;
+  return hospitals.map((hospital) => ({
+    requestId: String(hospital.requestId),
+    caseId,
+    broadcastId: String(command.payload.broadcastId),
+    wave: Number(command.payload.wave),
+    radiusKm: Number(command.payload.radiusKm),
+    responseExpiresAt,
+    hospitalId: String(hospital.hospitalId),
+    hospitalName: String(hospital.hospitalName),
+    distanceKm: Number(hospital.distanceKm),
+    ...(hospital.etaMinutes === null
+      ? { etaMinutes: null }
+      : { etaMinutes: Number(hospital.etaMinutes) }),
+    status: "REQUESTED",
+    requestedBy: principal.sub,
+    createdAt: occurredAt,
+    updatedAt: occurredAt,
+  }));
 }
 
 function updatedHospitalRequest(
@@ -190,6 +227,10 @@ function updatedHospitalRequest(
   occurredAt: string,
 ): HospitalRequest | undefined {
   const payload = command.payload;
+  if (type === "DESTINATION_CONFIRMED_BY_PARAMEDIC") {
+    if (!existing) throw new StoreNotFoundError("선택한 병원 수용 요청을 찾을 수 없습니다.");
+    return { ...existing, selectionStatus: "SELECTED", updatedAt: occurredAt };
+  }
   if (type === "HOSPITAL_REQUEST_CREATED") {
     if (existing) throw new StoreConflictError("같은 병원 문의 번호가 이미 존재합니다.");
     return {
@@ -253,18 +294,44 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
   const previous = await client.send(new GetCommand({ TableName: TABLE_NAME, Key: idempotencyKey, ConsistentRead: true }));
   if (previous.Item?.result) return previous.Item.result as CommandResult;
 
-  const meta = await getCaseMeta(caseId);
+  const needsRequestCollection = command.type === "HOSPITAL_BROADCAST_STARTED"
+    || command.type === "HOSPITAL_RESPONSE_RECORDED"
+    || command.type === "DESTINATION_CONFIRMED_BY_PARAMEDIC";
+  const workflowSnapshot = needsRequestCollection ? await getWorkflowCase(caseId) : undefined;
+  const meta = workflowSnapshot?.meta ?? await getCaseMeta(caseId);
   requireParamedicAssignment(principal, meta, command.type);
   if (command.expectedVersion !== undefined && command.expectedVersion !== (meta?.version ?? 0)) {
     throw new StoreConflictError("사건 상태가 갱신되었습니다. 최신 상태를 다시 불러오세요.");
   }
 
   const requestId = typeof command.payload.requestId === "string" ? command.payload.requestId : undefined;
-  const existingRequest = requestId ? await getHospitalRequest(caseId, requestId) : null;
-  if (command.type === "HOSPITAL_REQUEST_CREATED") {
+  const existingRequest = requestId
+    ? workflowSnapshot?.hospitalRequests.find((request) => request.requestId === requestId)
+      ?? await getHospitalRequest(caseId, requestId)
+    : null;
+  if (["HOSPITAL_BROADCAST_STARTED", "HOSPITAL_REQUEST_CREATED"].includes(command.type)) {
     const missingPaths = missingInitialAssessmentPaths(await getConfirmedState(caseId));
     if (missingPaths.length) {
       throw new StoreConflictError(`초기 환자평가 필수항목을 모두 확인한 뒤 병원에 문의하세요: ${missingPaths.join(", ")}`);
+    }
+  }
+  if (command.type === "HOSPITAL_BROADCAST_STARTED") {
+    const priorRequests = workflowSnapshot?.hospitalRequests ?? [];
+    const broadcastId = String(command.payload.broadcastId);
+    const requestIds = new Set(
+      (command.payload.hospitals as Array<Record<string, unknown>>).map((hospital) => String(hospital.requestId)),
+    );
+    const hospitalIds = new Set(
+      (command.payload.hospitals as Array<Record<string, unknown>>).map((hospital) => String(hospital.hospitalId)),
+    );
+    if (priorRequests.some((request) => request.broadcastId === broadcastId)) {
+      throw new StoreConflictError("같은 브로드캐스트 번호가 이미 사용되었습니다.");
+    }
+    if (priorRequests.some((request) => requestIds.has(request.requestId))) {
+      throw new StoreConflictError("같은 병원 문의 번호가 이미 존재합니다.");
+    }
+    if (priorRequests.some((request) => hospitalIds.has(request.hospitalId))) {
+      throw new StoreConflictError("이미 요청한 병원은 다음 브로드캐스트에 다시 포함할 수 없습니다.");
     }
   }
   if (command.type === "DESTINATION_CONFIRMED_BY_PARAMEDIC") {
@@ -279,8 +346,24 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
       throw new StoreConflictError("최종 이송병원과 인수 확인 병원이 일치하지 않습니다.");
     }
   }
+  if (command.type === "HOSPITAL_RESPONSE_RECORDED"
+    && command.payload.decision === "ACCEPTED"
+    && existingRequest?.responseExpiresAt
+    && Date.parse(existingRequest.responseExpiresAt) <= Date.now()) {
+    throw new StoreConflictError("수용 가능 회신 시간이 만료되었습니다. 구급대의 새 요청을 기다려 주세요.");
+  }
 
   const occurredAt = new Date().toISOString();
+  const request = updatedHospitalRequest(command.type, command, existingRequest, principal, occurredAt);
+  if (request) request.caseId = caseId;
+  const broadcastRequests = command.type === "HOSPITAL_BROADCAST_STARTED"
+    ? createBroadcastHospitalRequests(caseId, command, principal, occurredAt)
+    : [];
+  const notSelectedRequests = command.type === "DESTINATION_CONFIRMED_BY_PARAMEDIC"
+    ? (workflowSnapshot?.hospitalRequests ?? [])
+      .filter((candidate) => candidate.requestId !== requestId && candidate.selectionStatus !== "NOT_SELECTED")
+      .map((candidate) => ({ ...candidate, selectionStatus: "NOT_SELECTED" as const, updatedAt: occurredAt }))
+    : [];
   const eventId = randomUUID();
   const version = (meta?.version ?? 0) + 1;
   const stage = nextStage(meta?.stage, command.type);
@@ -307,6 +390,16 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
     createdAt: meta?.createdAt ?? occurredAt,
     updatedAt: occurredAt,
     ...(meta?.scenario ? { scenario: meta.scenario } : {}),
+    ...(meta?.reportTime ? { reportTime: meta.reportTime } : {}),
+    ...(meta?.reportSummary ? { reportSummary: meta.reportSummary } : {}),
+    ...(meta?.reportDetail ? { reportDetail: meta.reportDetail } : {}),
+    ...(meta?.estimatedAge ? { estimatedAge: meta.estimatedAge } : {}),
+    ...(meta?.estimatedSex ? { estimatedSex: meta.estimatedSex } : {}),
+    ...(meta?.reporter ? { reporter: meta.reporter } : {}),
+    ...(meta?.station ? { station: meta.station } : {}),
+    ...(meta?.sceneAddress ? { sceneAddress: meta.sceneAddress } : {}),
+    ...(typeof meta?.sceneLatitude === "number" ? { sceneLatitude: meta.sceneLatitude } : {}),
+    ...(typeof meta?.sceneLongitude === "number" ? { sceneLongitude: meta.sceneLongitude } : {}),
     ...(command.type === "CASE_ASSIGNED" && typeof command.payload.scenario === "string" ? { scenario: command.payload.scenario } : {}),
     ...(meta?.agency ? { agency: meta.agency } : {}),
     ...(meta?.unitId ? { unitId: meta.unitId } : {}),
@@ -319,8 +412,6 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
   };
   const result: CommandResult = { caseId, version, eventId, eventType: command.type, occurredAt };
   const ttl = Math.floor(Date.now() / 1_000) + 86_400;
-  const request = updatedHospitalRequest(command.type, command, existingRequest, principal, occurredAt);
-  if (request) request.caseId = caseId;
 
   const metaCondition = meta ? "#version = :expected" : "attribute_not_exists(PK)";
   const items: NonNullable<TransactWriteCommandInput["TransactItems"]> = [
@@ -357,6 +448,42 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
       },
     });
   }
+  for (const broadcastRequest of broadcastRequests) {
+    items.push({
+      Put: {
+        TableName: TABLE_NAME,
+        Item: {
+          PK: casePk(caseId),
+          SK: requestSk(broadcastRequest.requestId),
+          entityType: "HOSPITAL_REQUEST",
+          ...broadcastRequest,
+        },
+        ConditionExpression: "attribute_not_exists(PK)",
+      },
+    });
+  }
+  for (const notSelectedRequest of notSelectedRequests) {
+    const previousRequest = workflowSnapshot?.hospitalRequests.find(
+      (candidate) => candidate.requestId === notSelectedRequest.requestId,
+    );
+    if (!previousRequest) continue;
+    items.push({
+      Put: {
+        TableName: TABLE_NAME,
+        Item: {
+          PK: casePk(caseId),
+          SK: requestSk(notSelectedRequest.requestId),
+          entityType: "HOSPITAL_REQUEST",
+          ...notSelectedRequest,
+        },
+        ConditionExpression: "updatedAt = :previousUpdatedAt",
+        ExpressionAttributeValues: { ":previousUpdatedAt": previousRequest.updatedAt },
+      },
+    });
+  }
+  if (items.length > 100) {
+    throw new StoreConflictError("단일 병원 매칭 트랜잭션의 안전 한도를 초과했습니다.");
+  }
 
   try {
     await client.send(new TransactWriteCommand({ TransactItems: items }));
@@ -369,18 +496,4 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
     throw error;
   }
   return result;
-}
-
-export async function appendInternalEvent(
-  caseId: string,
-  type: "REPORT_DRAFTED" | "REPORT_REVIEWED" | "REPORT_FINALIZED" | "FHIR_PUBLISHED" | "PATIENT_FACTS_CONFIRMED" | "REASSESSMENT_CONFIRMED",
-  actorSub: string,
-  actorRole: "paramedic" | "admin",
-  payload: Record<string, unknown>,
-  commandId: string = randomUUID(),
-) {
-  const meta = await getCaseMeta(caseId);
-  if (!meta) throw new StoreNotFoundError("사건을 찾을 수 없습니다.");
-  const command: CaseCommand = { commandId, type, expectedVersion: meta.version, payload };
-  return executeCaseCommand(caseId, command, { sub: actorSub, roles: [actorRole] });
 }

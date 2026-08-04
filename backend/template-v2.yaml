@@ -1,0 +1,339 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: EMS Relay v2 Seoul AppSync backend - case workflow, hospital inbox and asynchronous matching
+
+Parameters:
+  CognitoCallbackUrls:
+    Type: CommaDelimitedList
+    Default: "http://localhost:3000/auth/callback"
+  CognitoLogoutUrls:
+    Type: CommaDelimitedList
+    Default: "http://localhost:3000/login"
+  ExternalApiSecretName:
+    Type: String
+    Default: ems-relay/external-api-keys
+    AllowedValues: [ems-relay/external-api-keys]
+  BedrockModelId:
+    Type: String
+    Default: global.anthropic.claude-haiku-4-5-20251001-v1:0
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Architectures: [arm64]
+    MemorySize: 512
+    Tracing: Active
+    Environment:
+      Variables:
+        TABLE_NAME: !Ref CaseTable
+        MATCHING_QUEUE_URL: !Ref MatchingQueue
+        EXTERNAL_API_SECRET_NAME: !Ref ExternalApiSecretName
+        NODE_OPTIONS: --enable-source-maps
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      UserPoolName: !Sub ${AWS::StackName}-users
+      UsernameAttributes: [email]
+      AutoVerifiedAttributes: [email]
+      MfaConfiguration: OPTIONAL
+      EnabledMfas: [SOFTWARE_TOKEN_MFA]
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 3
+      Schema:
+        - Name: hospital_id
+          AttributeDataType: String
+          Mutable: true
+          Required: false
+          StringAttributeConstraints: { MinLength: "1", MaxLength: "128" }
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub ems-relay-v2-${AWS::AccountId}-${AWS::Region}
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: ems-relay-v2-spa
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      PreventUserExistenceErrors: ENABLED
+      EnableTokenRevocation: true
+      AccessTokenValidity: 15
+      IdTokenValidity: 15
+      RefreshTokenValidity: 1
+      TokenValidityUnits: { AccessToken: minutes, IdToken: minutes, RefreshToken: days }
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [openid, email, profile]
+      SupportedIdentityProviders: [COGNITO]
+      CallbackURLs: !Ref CognitoCallbackUrls
+      LogoutURLs: !Ref CognitoLogoutUrls
+      ExplicitAuthFlows: [ALLOW_USER_SRP_AUTH, ALLOW_REFRESH_TOKEN_AUTH]
+      ReadAttributes: [email, email_verified, custom:hospital_id]
+      WriteAttributes: [email]
+
+  ParamedicGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: paramedic, Description: Assigned field paramedics, UserPoolId: !Ref UserPool, Precedence: 10 }
+  HospitalGroup:
+    Type: AWS::Cognito::UserPoolGroup
+    Properties: { GroupName: hospital, Description: Hospital receiving staff, UserPoolId: !Ref UserPool, Precedence: 20 }
+
+  CaseTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: PK, AttributeType: S }
+        - { AttributeName: SK, AttributeType: S }
+        - { AttributeName: GSI1PK, AttributeType: S }
+        - { AttributeName: GSI1SK, AttributeType: S }
+        - { AttributeName: GSI2PK, AttributeType: S }
+        - { AttributeName: GSI2SK, AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: HospitalInboxIndex
+          KeySchema:
+            - { AttributeName: GSI1PK, KeyType: HASH }
+            - { AttributeName: GSI1SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: ParamedicCasesIndex
+          KeySchema:
+            - { AttributeName: GSI2PK, KeyType: HASH }
+            - { AttributeName: GSI2SK, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      SSESpecification: { SSEEnabled: true }
+      TimeToLiveSpecification: { AttributeName: expiresAt, Enabled: true }
+
+  MatchingDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600
+      SqsManagedSseEnabled: true
+
+  MatchingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      VisibilityTimeout: 90
+      MessageRetentionPeriod: 345600
+      SqsManagedSseEnabled: true
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt MatchingDeadLetterQueue.Arn
+        maxReceiveCount: 4
+
+  AppSyncFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/v2/appsyncHandler.handler
+      Timeout: 8
+      Description: AppSync case, hospital inbox and matching command resolver
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref CaseTable }
+        - SQSSendMessagePolicy: { QueueName: !GetAtt MatchingQueue.QueueName }
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/v2/appsyncHandler.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+        Format: cjs
+
+  VoiceFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/v2/voiceHandler.handler
+      Timeout: 20
+      MemorySize: 1024
+      Description: Optional Korean PTT streaming session and Bedrock human-review proposal
+      Environment:
+        Variables:
+          TRANSCRIBE_REGION: !Ref AWS::Region
+          BEDROCK_REGION: !Ref AWS::Region
+          BEDROCK_MODEL_ID: !Ref BedrockModelId
+          VOICE_AGENT_TIMEOUT_MS: "8000"
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref CaseTable }
+        - Statement:
+            - Sid: StartKoreanStreamingTranscription
+              Effect: Allow
+              Action: [transcribe:StartStreamTranscriptionWebSocket]
+              Resource: "*"
+            - Sid: StructurePendingVoiceProposal
+              Effect: Allow
+              Action: [bedrock:InvokeModel]
+              Resource:
+                - !Sub arn:${AWS::Partition}:bedrock:*:${AWS::AccountId}:inference-profile/*
+                - !Sub arn:${AWS::Partition}:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-*
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/v2/voiceHandler.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+        Format: cjs
+
+  EmsRelayGraphQLApi:
+    Type: AWS::Serverless::GraphQLApi
+    Properties:
+      Name: !Sub ${AWS::StackName}-graphql
+      SchemaUri: schemas/v2.graphql
+      Auth:
+        Type: AMAZON_COGNITO_USER_POOLS
+        UserPool:
+          AwsRegion: !Ref AWS::Region
+          UserPoolId: !Ref UserPool
+          DefaultAction: ALLOW
+        Additional:
+          - Type: AWS_IAM
+      Logging: false
+      XrayEnabled: true
+      DataSources:
+        Lambda:
+          AppSyncLambdaDataSource:
+            FunctionArn: !GetAtt AppSyncFunction.Arn
+          VoiceLambdaDataSource:
+            FunctionArn: !GetAtt VoiceFunction.Arn
+      Functions:
+        InvokeAppSyncLambda:
+          Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+          DataSource: AppSyncLambdaDataSource
+          CodeUri: appsync/v2/lambdaInvoker.js
+        InvokeVoiceLambda:
+          Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+          DataSource: VoiceLambdaDataSource
+          CodeUri: appsync/v2/lambdaInvoker.js
+      Resolvers:
+        Query:
+          listMyCases:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+          getCase:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+          listHospitalInbox:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+        Mutation:
+          executeCommand:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+          requestHospitalMatching:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+          createTranscribeSession:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeVoiceLambda]
+          structureVoiceUpdate:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeVoiceLambda]
+          publishCaseUpdate:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+        Subscription:
+          onCaseUpdate:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+          onHospitalInbox:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+
+  MatchingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: src/v2/matchingHandler.handler
+      Timeout: 30
+      Description: Expands nearby hospital requests without choosing a destination
+      Environment:
+        Variables:
+          GRAPHQL_ENDPOINT: !GetAtt EmsRelayGraphQLApi.GraphQLUrl
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref CaseTable }
+        - SQSPollerPolicy: { QueueName: !GetAtt MatchingQueue.QueueName }
+        - SQSSendMessagePolicy: { QueueName: !GetAtt MatchingQueue.QueueName }
+        - Statement:
+            - Sid: ReadExternalApiSecret
+              Effect: Allow
+              Action: [secretsmanager:GetSecretValue]
+              Resource: !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ExternalApiSecretName}-*
+            - Sid: PublishAppSyncUpdates
+              Effect: Allow
+              Action: [appsync:GraphQL]
+              Resource: !Sub arn:${AWS::Partition}:appsync:${AWS::Region}:${AWS::AccountId}:apis/${EmsRelayGraphQLApi.ApiId}/*
+      Events:
+        MatchJobs:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt MatchingQueue.Arn
+            BatchSize: 1
+            MaximumBatchingWindowInSeconds: 0
+            FunctionResponseTypes: [ReportBatchItemFailures]
+    Metadata:
+      BuildMethod: esbuild
+      BuildProperties:
+        EntryPoints: [src/v2/matchingHandler.ts]
+        Minify: true
+        Sourcemap: true
+        Target: es2022
+        Format: cjs
+
+  AppSyncFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties: { LogGroupName: !Sub "/aws/lambda/${AppSyncFunction}", RetentionInDays: 14 }
+
+  MatchingFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties: { LogGroupName: !Sub "/aws/lambda/${MatchingFunction}", RetentionInDays: 14 }
+
+  VoiceFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties: { LogGroupName: !Sub "/aws/lambda/${VoiceFunction}", RetentionInDays: 14 }
+
+Outputs:
+  GraphQLApiId:
+    Value: !GetAtt EmsRelayGraphQLApi.ApiId
+  GraphQLUrl:
+    Value: !GetAtt EmsRelayGraphQLApi.GraphQLUrl
+  GraphQLRealtimeUrl:
+    Value: !GetAtt EmsRelayGraphQLApi.RealtimeUrl
+  UserPoolId:
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Value: !Ref UserPoolClient
+  CognitoDomain:
+    Value: !Sub https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com
+  CaseTableName:
+    Value: !Ref CaseTable
+  MatchingQueueUrl:
+    Value: !Ref MatchingQueue

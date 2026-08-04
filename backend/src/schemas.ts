@@ -194,6 +194,7 @@ function directValueIssue(path: FactPath, value: ProposalValue) {
   const numberRanges: Partial<Record<FactPath, [number, number]>> = {
     "patient.age": [0, 130],
     "symptoms.chestPainNrs": [0, 10],
+    "assessment.cpss.score": [0, 3],
     "vitals.systolicBp": [20, 300],
     "vitals.diastolicBp": [10, 200],
     "vitals.pulse": [0, 300],
@@ -220,6 +221,9 @@ function directValueIssue(path: FactPath, value: ProposalValue) {
     "assessment.airway": ["개방", "확보 필요"],
     "assessment.breathing": ["자발호흡", "호흡 이상"],
     "assessment.circulation": ["맥박 촉지", "순환 불안정"],
+    "assessment.cpss.face": ["정상", "좌측 이상", "우측 이상", "평가 불가"],
+    "assessment.cpss.arm": ["정상", "좌측 이상", "우측 이상", "평가 불가"],
+    "assessment.cpss.speech": ["정상", "구음장애", "실어증", "평가 불가"],
   };
   const allowedValues = enumValues[path];
   if (allowedValues && !allowedValues.includes(String(value))) {
@@ -240,8 +244,8 @@ export function validateDirectFactsRequest(value: unknown): ValidationResult<Dir
   }
   const facts: DirectFactsRequest["facts"] = [];
   const seen = new Set<string>();
-  if (!Array.isArray(value.facts) || value.facts.length === 0 || value.facts.length > 20) {
-    issues.push("facts는 1~20개 항목의 배열이어야 합니다.");
+  if (!Array.isArray(value.facts) || value.facts.length === 0 || value.facts.length > 30) {
+    issues.push("facts는 1~30개 항목의 배열이어야 합니다.");
   } else {
     value.facts.forEach((entry, index) => {
       if (!isRecord(entry)) {

@@ -1,0 +1,169 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type Query {
+  listMyCases: [CaseSummary!]!
+  getCase(caseId: ID!): CaseSnapshot
+  listHospitalInbox(hospitalId: ID): [HospitalInboxItem!]!
+}
+
+type Mutation {
+  executeCommand(input: ExecuteCommandInput!): CaseUpdate!
+  requestHospitalMatching(input: HospitalMatchingInput!): MatchingJob!
+  createTranscribeSession(input: TranscribeSessionInput!): TranscribeSession!
+  structureVoiceUpdate(input: VoiceProposalInput!): VoiceProposal!
+
+  # Internal IAM-only publishers used by the asynchronous matching worker.
+  # The Lambda resolver also rejects non-IAM identities for these fields.
+  publishCaseUpdate(input: CaseUpdateInput!): CaseUpdate! @aws_iam
+}
+
+type Subscription {
+  onCaseUpdate(caseId: ID!): CaseUpdate
+    @aws_cognito_user_pools(cognito_groups: ["paramedic"])
+    @aws_subscribe(mutations: ["executeCommand", "publishCaseUpdate"])
+  onHospitalInbox(hospitalId: ID!): CaseUpdate
+    @aws_cognito_user_pools(cognito_groups: ["hospital"])
+    @aws_subscribe(mutations: ["executeCommand", "publishCaseUpdate"])
+}
+
+type CaseSummary {
+  caseId: ID!
+  version: Int!
+  stage: String!
+  scenario: String
+  reportTime: AWSDateTime
+  reportSummary: String
+  reportDetail: String
+  estimatedAge: String
+  estimatedSex: String
+  reporter: String
+  station: String
+  sceneAddress: String
+  sceneLatitude: Float
+  sceneLongitude: Float
+  agency: String
+  unitId: String
+  vehicleNumber: String
+  destinationHospitalId: ID
+  updatedAt: AWSDateTime!
+}
+
+type CaseSnapshot {
+  caseId: ID!
+  version: Int!
+  stage: String!
+  confirmedState: AWSJSON!
+  meta: AWSJSON!
+  events: AWSJSON!
+  hospitalRequests: AWSJSON!
+}
+
+type HospitalInboxItem {
+  requestId: ID!
+  caseId: ID!
+  hospitalId: ID!
+  hospitalName: String
+  status: String!
+  wave: Int
+  radiusKm: Float
+  distanceKm: Float
+  etaMinutes: Int
+  patientCard: AWSJSON!
+  createdAt: AWSDateTime!
+  updatedAt: AWSDateTime!
+}
+
+type CaseUpdate @aws_cognito_user_pools @aws_iam {
+  caseId: ID!
+  version: Int!
+  eventId: ID!
+  eventType: String!
+  stage: String!
+  occurredAt: AWSDateTime!
+  requestId: ID
+  hospitalId: ID
+  requestStatus: String
+  payload: AWSJSON
+}
+
+type MatchingJob {
+  jobId: ID!
+  caseId: ID!
+  status: String!
+  wave: Int!
+  radiusKm: Float!
+  maxRadiusKm: Float!
+  createdAt: AWSDateTime!
+}
+
+type TranscribeSession {
+  sessionId: ID!
+  websocketUrl: String!
+  expiresAt: AWSDateTime!
+  languageCode: String!
+  mediaEncoding: String!
+  sampleRateHertz: Int!
+}
+
+type VoiceProposal {
+  proposalId: ID!
+  caseId: ID!
+  baseVersion: Int!
+  status: String!
+  summary: String!
+  changes: AWSJSON!
+  flags: AWSJSON!
+  createdAt: AWSDateTime!
+  requiresHumanReview: Boolean!
+}
+
+input ExecuteCommandInput {
+  caseId: ID!
+  commandId: ID!
+  type: String!
+  expectedVersion: Int
+  payload: AWSJSON!
+}
+
+input HospitalMatchingInput {
+  caseId: ID!
+  requestId: ID!
+  latitude: Float!
+  longitude: Float!
+  radiusKm: Float
+  maxRadiusKm: Float
+}
+
+enum VoiceUpdateFocus {
+  BASIC
+  CPSS
+  VITALS
+}
+
+input TranscribeSessionInput {
+  caseId: ID!
+}
+
+input VoiceProposalInput {
+  caseId: ID!
+  transcript: String!
+  focus: VoiceUpdateFocus
+  observedAt: AWSDateTime
+}
+
+input CaseUpdateInput {
+  caseId: ID!
+  version: Int!
+  eventId: ID!
+  eventType: String!
+  stage: String!
+  occurredAt: AWSDateTime!
+  requestId: ID
+  hospitalId: ID
+  requestStatus: String
+  payload: AWSJSON
+}

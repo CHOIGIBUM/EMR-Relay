@@ -34,6 +34,21 @@ function optionalNumber(
   }
 }
 
+function requiredNumber(
+  payload: Record<string, unknown>,
+  key: string,
+  min: number,
+  max: number,
+  issues: string[],
+  allowNull = false,
+) {
+  if (!(key in payload)) {
+    issues.push(`${key} is required.`);
+    return;
+  }
+  optionalNumber(payload, key, min, max, issues, allowNull);
+}
+
 function validatePayload(type: CaseEventType, payload: Record<string, unknown>) {
   const issues: string[] = [];
   switch (type) {
@@ -57,9 +72,57 @@ function validatePayload(type: CaseEventType, payload: Record<string, unknown>) 
       optionalNumber(payload, "distanceKm", 0, 2_000, issues);
       optionalNumber(payload, "etaMinutes", 0, 1_440, issues, true);
       break;
+    case "HOSPITAL_BROADCAST_STARTED": {
+      requiredId(payload, "broadcastId", issues);
+      if (!Number.isInteger(payload.wave) || Number(payload.wave) < 1 || Number(payload.wave) > 100) {
+        issues.push("wave must be an integer from 1 to 100.");
+      }
+      requiredNumber(payload, "radiusKm", 0.1, 2_000, issues);
+      if (!Number.isInteger(payload.responseWindowSeconds)
+        || Number(payload.responseWindowSeconds) < 30
+        || Number(payload.responseWindowSeconds) > 3_600) {
+        issues.push("responseWindowSeconds must be an integer from 30 to 3600.");
+      }
+      if (!Array.isArray(payload.hospitals) || payload.hospitals.length < 1 || payload.hospitals.length > 3) {
+        issues.push("hospitals must contain 1 to 3 hospital request snapshots.");
+        break;
+      }
+      const requestIds = new Set<string>();
+      const hospitalIds = new Set<string>();
+      payload.hospitals.forEach((hospital, index) => {
+        if (!isRecord(hospital)) {
+          issues.push(`hospitals[${index}] must be an object.`);
+          return;
+        }
+        const targetIssues: string[] = [];
+        requiredId(hospital, "requestId", targetIssues);
+        requiredId(hospital, "hospitalId", targetIssues);
+        optionalText(hospital, "hospitalName", 160, targetIssues);
+        if (typeof hospital.hospitalName !== "string") targetIssues.push("hospitalName is required.");
+        requiredNumber(hospital, "distanceKm", 0, 2_000, targetIssues);
+        requiredNumber(hospital, "etaMinutes", 0, 1_440, targetIssues, true);
+        issues.push(...targetIssues.map((issue) => `hospitals[${index}].${issue}`));
+
+        if (typeof hospital.requestId === "string") {
+          if (requestIds.has(hospital.requestId)) issues.push(`hospitals[${index}].requestId must be unique within a broadcast.`);
+          requestIds.add(hospital.requestId);
+        }
+        if (typeof hospital.hospitalId === "string") {
+          if (hospitalIds.has(hospital.hospitalId)) issues.push(`hospitals[${index}].hospitalId must be unique within a broadcast.`);
+          hospitalIds.add(hospital.hospitalId);
+        }
+      });
+      break;
+    }
     case "HOSPITAL_REQUEST_VIEWED":
+      requiredId(payload, "requestId", issues);
+      break;
     case "HANDOFF_ACCEPTED":
       requiredId(payload, "requestId", issues);
+      optionalText(payload, "receiver", 160, issues);
+      optionalText(payload, "role", 80, issues);
+      if (typeof payload.receiver !== "string") issues.push("receiver가 필요합니다.");
+      if (typeof payload.role !== "string") issues.push("role이 필요합니다.");
       break;
     case "ADDITIONAL_INFO_REQUESTED":
     case "ADDITIONAL_INFO_SENT":
@@ -72,9 +135,6 @@ function validatePayload(type: CaseEventType, payload: Record<string, unknown>) 
       if (payload.decision !== "ACCEPTED" && payload.decision !== "DECLINED") issues.push("decision은 ACCEPTED 또는 DECLINED여야 합니다.");
       optionalText(payload, "reasonCode", 80, issues);
       optionalText(payload, "reasonText", 500, issues);
-      if (payload.decision === "DECLINED" && typeof payload.reasonCode !== "string" && typeof payload.reasonText !== "string") {
-        issues.push("수용 곤란 회신에는 reasonCode 또는 reasonText가 필요합니다.");
-      }
       break;
     case "DESTINATION_CONFIRMED_BY_PARAMEDIC":
       requiredId(payload, "requestId", issues);

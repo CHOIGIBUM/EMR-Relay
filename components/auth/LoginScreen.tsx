@@ -2,13 +2,12 @@
 
 import { useEffect } from "react";
 import { useAuth, roleHome } from "./AuthProvider";
-import type { OperationalRole } from "@/lib/operationalTypes";
+import type { AppRole } from "@/lib/authRole";
 import AuthBrand from "./AuthBrand";
 import styles from "./Auth.module.css";
 
-const developmentRoles: Array<{ role: OperationalRole; label: string }> = [
+const developmentRoles: Array<{ role: AppRole; label: string }> = [
   { role: "paramedic", label: "구급대원" },
-  { role: "control", label: "상황실" },
   { role: "hospital", label: "병원" },
 ];
 

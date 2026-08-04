@@ -1,4 +1,5 @@
-import type { OperationalRole } from "@/lib/operationalTypes";
+import { APP_ROLES, isAppRole, type AppRole } from "@/lib/authRole";
+import { DEFAULT_V2_HOSPITAL_ID } from "@/lib/v2/hospitalDirectory";
 
 const TOKEN_KEY = "ems-relay:cognito-session:v1";
 const VERIFIER_KEY = "ems-relay:cognito-pkce:v1";
@@ -26,7 +27,7 @@ export type AuthenticatedUser = {
   subject: string;
   displayName: string;
   email: string;
-  roles: OperationalRole[];
+  roles: AppRole[];
   institutionId: string | null;
   accessToken: string | null;
   expiresAt: number | null;
@@ -51,12 +52,12 @@ function decodeJwt(token: string): Record<string, unknown> {
   }
 }
 
-function rolesFromClaims(claims: Record<string, unknown>): OperationalRole[] {
+function rolesFromClaims(claims: Record<string, unknown>): AppRole[] {
   const groups = Array.isArray(claims["cognito:groups"])
     ? claims["cognito:groups"].filter((group): group is string => typeof group === "string")
     : [];
   const candidates = new Set(groups.map((group) => group.toLowerCase().replace(/^ems[-_:]/, "")));
-  return (["paramedic", "control", "hospital", "admin"] as const).filter((role) => candidates.has(role));
+  return APP_ROLES.filter((role) => candidates.has(role));
 }
 
 function tokenUser(tokens: TokenSet): AuthenticatedUser | null {
@@ -193,11 +194,21 @@ function readTokens(): TokenSet | null {
 async function refreshTokens(tokens: TokenSet): Promise<TokenSet | null> {
   if (!tokens.refresh_token || !isCognitoConfigured()) return null;
   const body = new URLSearchParams({ grant_type: "refresh_token", client_id: clientId, refresh_token: tokens.refresh_token });
-  const response = await fetch(`${domain}/oauth2/token`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body,
-  });
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), 8_000);
+  let response: Response;
+  try {
+    response = await fetch(`${domain}/oauth2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body,
+      signal: controller.signal,
+    });
+  } catch {
+    return null;
+  } finally {
+    globalThis.clearTimeout(timeout);
+  }
   if (!response.ok) return null;
   const next = await response.json() as Partial<TokenSet>;
   const refreshed: TokenSet = {
@@ -214,9 +225,9 @@ async function refreshTokens(tokens: TokenSet): Promise<TokenSet | null> {
 
 export async function restoreAuthenticatedUser() {
   if (devAuthEnabled) {
-    const role = sessionStorage.getItem(DEV_ROLE_KEY) as OperationalRole | null;
-    if (role && ["paramedic", "control", "hospital", "admin"].includes(role)) {
-      return { subject: `development-${role}`, displayName: "개발 사용자", email: "", roles: [role], institutionId: role === "hospital" ? "H-GW-EMG-016" : null, accessToken: null, expiresAt: null, development: true } satisfies AuthenticatedUser;
+    const role = sessionStorage.getItem(DEV_ROLE_KEY);
+    if (isAppRole(role)) {
+      return { subject: `development-${role}`, displayName: "개발 사용자", email: "", roles: [role], institutionId: role === "hospital" ? DEFAULT_V2_HOSPITAL_ID : null, accessToken: null, expiresAt: null, development: true } satisfies AuthenticatedUser;
     }
   }
   let tokens = readTokens();
@@ -226,10 +237,15 @@ export async function restoreAuthenticatedUser() {
 }
 
 export async function currentAccessToken() {
-  return (await restoreAuthenticatedUser())?.accessToken ?? null;
+  let tokens = readTokens();
+  if (!tokens) return null;
+  if (tokens.obtained_at + tokens.expires_in * 1000 < Date.now() + 60_000) {
+    tokens = await refreshTokens(tokens);
+  }
+  return tokens?.id_token ?? null;
 }
 
-export function chooseDevelopmentRole(role: OperationalRole) {
+export function chooseDevelopmentRole(role: AppRole) {
   if (!devAuthEnabled) throw new Error("개발 로그인이 허용되지 않았습니다.");
   sessionStorage.setItem(DEV_ROLE_KEY, role);
 }

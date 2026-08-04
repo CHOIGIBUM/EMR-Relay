@@ -7,22 +7,20 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test dist/tests/*.test.js",
-    "sam:validate": "sam validate --lint --template-file template.yaml",
-    "sam:build": "sam build --template-file template.yaml"
+    "sam:validate": "sam validate --lint --template-file template-v2.yaml",
+    "sam:build": "sam build --template-file template-v2.yaml --build-dir .aws-sam-v2/build",
+    "seed:v2": "node scripts/seed-v2.mjs"
   },
   "dependencies": {
-    "@aws-sdk/client-apigatewaymanagementapi": "^3.1101.0",
-    "@aws-sdk/client-bedrock-agentcore": "^3.1101.0",
     "@aws-sdk/client-bedrock-runtime": "^3.883.0",
     "@aws-sdk/client-dynamodb": "^3.883.0",
-    "@aws-sdk/client-s3": "^3.1101.0",
     "@aws-sdk/client-secrets-manager": "^3.1101.0",
+    "@aws-sdk/client-sqs": "^3.1101.0",
     "@aws-sdk/credential-provider-node": "^3.972.76",
     "@aws-sdk/lib-dynamodb": "^3.883.0",
-    "@aws-sdk/util-dynamodb": "^3.996.7",
     "@aws-sdk/util-format-url": "^3.972.41",
     "@smithy/hash-node": "^4.4.16",
     "@smithy/protocol-http": "^5.5.16",

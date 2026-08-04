@@ -10,7 +10,7 @@ import {
   startCognitoSignIn,
   type AuthenticatedUser,
 } from "@/lib/cognitoAuth";
-import type { OperationalRole } from "@/lib/operationalTypes";
+import type { AppRole } from "@/lib/authRole";
 
 type AuthState = {
   status: "loading" | "authenticated" | "anonymous";
@@ -19,17 +19,15 @@ type AuthState = {
   developmentLoginEnabled: boolean;
   refresh(): Promise<AuthenticatedUser | null>;
   signIn(returnTo?: string): Promise<void>;
-  useDevelopmentRole(role: OperationalRole): Promise<void>;
+  useDevelopmentRole(role: AppRole): Promise<void>;
   signOut(): void;
 };
 
 const AuthContext = createContext<AuthState | null>(null);
 
-export function roleHome(role: OperationalRole) {
+export function roleHome(role: AppRole) {
   if (role === "paramedic") return "/paramedic";
-  if (role === "hospital") return "/hospital";
-  if (role === "admin") return "/reports";
-  return "/control";
+  return "/hospital";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { decodeEventStreamMessages, encodeAudioEvent } from "@/lib/amazonEventStream";
-import { createTranscribeSession } from "@/lib/operationalApi";
+import type { TranscribeSession } from "@/lib/v2/types";
 
 type PttState = "idle" | "starting" | "listening" | "stopping";
 type TranscriptPayload = {
@@ -29,7 +29,9 @@ async function disposeResources(resources: Partial<ActiveAudio>, closeSocket: bo
   }
 }
 
-export function useTranscribePtt() {
+type SessionCreator = (caseId: string) => Promise<TranscribeSession>;
+
+export function useTranscribePtt(createTranscribeSession: SessionCreator) {
   const activeRef = useRef<ActiveAudio | null>(null);
   const pendingRef = useRef<Partial<ActiveAudio> | null>(null);
   const startIdRef = useRef(0);
@@ -72,7 +74,7 @@ export function useTranscribePtt() {
       await pending.context.audioWorklet.addModule("/audio-processor.worklet.js");
       await pending.context.resume();
       assertCurrent();
-      const session = await createTranscribeSession({ caseId, languageCode: "ko-KR", sampleRateHertz: 16000 });
+      const session = await createTranscribeSession(caseId);
       assertCurrent();
       pending.socket = new WebSocket(session.websocketUrl);
       pending.socket.binaryType = "arraybuffer";
@@ -141,7 +143,7 @@ export function useTranscribePtt() {
       setError(message);
       throw new Error(message);
     }
-  }, []);
+  }, [createTranscribeSession]);
 
   const flushWorklet = useCallback((worklet: AudioWorkletNode) => new Promise<void>((resolve) => {
     let finished = false;

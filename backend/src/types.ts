@@ -3,6 +3,9 @@ export const ALLOWED_FACT_PATHS = [
   "patient.sex",
   "symptoms.chiefComplaint",
   "symptoms.onsetAt",
+  "symptoms.lastKnownNormalAt",
+  "symptoms.lastKnownNormalBasis",
+  "symptoms.firstAbnormalAt",
   "symptoms.chestPain",
   "symptoms.chestPainNrs",
   "symptoms.chestPainQuality",
@@ -22,6 +25,10 @@ export const ALLOWED_FACT_PATHS = [
   "assessment.airway",
   "assessment.breathing",
   "assessment.circulation",
+  "assessment.cpss.face",
+  "assessment.cpss.arm",
+  "assessment.cpss.speech",
+  "assessment.cpss.score",
   "assessment.ecg",
   "assessment.fieldImpression",
   "treatment.oxygen",
@@ -47,6 +54,8 @@ export type FactPath = (typeof ALLOWED_FACT_PATHS)[number];
  */
 export const INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP = {
   1: [
+    "patient.age",
+    "patient.sex",
     "assessment.airway",
     "assessment.breathing",
     "assessment.circulation",
@@ -54,11 +63,13 @@ export const INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP = {
     "symptoms.chiefComplaint",
   ],
   2: [
-    "symptoms.onsetAt",
-    "symptoms.chestPainNrs",
-    "symptoms.chestPainQuality",
-    "symptoms.chestPainRadiation",
-    "symptoms.associated",
+    "symptoms.lastKnownNormalAt",
+    "symptoms.lastKnownNormalBasis",
+    "symptoms.firstAbnormalAt",
+    "assessment.cpss.face",
+    "assessment.cpss.arm",
+    "assessment.cpss.speech",
+    "assessment.cpss.score",
   ],
   3: [
     "vitals.systolicBp",
@@ -66,7 +77,6 @@ export const INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP = {
     "vitals.pulse",
     "vitals.respiratoryRate",
     "vitals.spo2",
-    "vitals.temperature",
     "vitals.glucose",
   ],
 } as const satisfies Record<1 | 2 | 3, readonly FactPath[]>;
@@ -200,11 +210,11 @@ export type CaseView = {
   meta?: CaseMeta;
   events?: CaseEvent[];
   hospitalRequests?: HospitalRequest[];
-  report?: AmbulanceActivityReport;
 };
 
-export const PRINCIPAL_ROLES = ["paramedic", "control", "hospital", "admin"] as const;
+export const PRINCIPAL_ROLES = ["paramedic", "hospital"] as const;
 export type PrincipalRole = (typeof PRINCIPAL_ROLES)[number];
+export type CaseActorRole = PrincipalRole | "system";
 
 export type AuthPrincipal = {
   sub: string;
@@ -234,6 +244,7 @@ export const CASE_EVENT_TYPES = [
   "ARRIVED_SCENE",
   "PATIENT_CONTACT",
   "PATIENT_FACTS_CONFIRMED",
+  "HOSPITAL_BROADCAST_STARTED",
   "HOSPITAL_REQUEST_CREATED",
   "HOSPITAL_REQUEST_VIEWED",
   "ADDITIONAL_INFO_REQUESTED",
@@ -245,10 +256,6 @@ export const CASE_EVENT_TYPES = [
   "ARRIVED_HOSPITAL",
   "HANDOFF_SENT",
   "HANDOFF_ACCEPTED",
-  "REPORT_DRAFTED",
-  "REPORT_REVIEWED",
-  "REPORT_FINALIZED",
-  "FHIR_PUBLISHED",
 ] as const;
 export type CaseEventType = (typeof CASE_EVENT_TYPES)[number];
 
@@ -257,6 +264,16 @@ export type CaseMeta = {
   version: number;
   stage: CaseStage;
   scenario?: string;
+  reportTime?: string;
+  reportSummary?: string;
+  reportDetail?: string;
+  estimatedAge?: string;
+  estimatedSex?: string;
+  reporter?: string;
+  station?: string;
+  sceneAddress?: string;
+  sceneLatitude?: number;
+  sceneLongitude?: number;
   agency?: string;
   unitId?: string;
   vehicleNumber?: string;
@@ -271,7 +288,7 @@ export type CaseEvent = {
   caseId: string;
   type: CaseEventType;
   actorSub: string;
-  actorRole: PrincipalRole;
+  actorRole: CaseActorRole;
   occurredAt: string;
   version: number;
   summary: string;
@@ -304,11 +321,16 @@ export type HospitalInformationRequest = {
 export type HospitalRequest = {
   requestId: string;
   caseId: string;
+  broadcastId?: string;
+  wave?: number;
+  radiusKm?: number;
+  responseExpiresAt?: string;
   hospitalId: string;
   hospitalName?: string;
   distanceKm?: number;
   etaMinutes?: number | null;
   status: HospitalRequestStatus;
+  selectionStatus?: "SELECTED" | "NOT_SELECTED";
   requestedBy: string;
   createdAt: string;
   updatedAt: string;
@@ -329,60 +351,6 @@ export type CommandResult = {
   eventId: string;
   eventType: CaseEventType;
   occurredAt: string;
-};
-
-export type ReportStatus = "DRAFT" | "IN_REVIEW" | "FINALIZED";
-
-export type Annex5ReportDraft = {
-  schema: "KR_AMBULANCE_ACTIVITY_ANNEX5_MVP_V1";
-  generatedAt: string;
-  administrative: {
-    organization?: string;
-    vehicleNumber?: string;
-    documentNumber?: string;
-    approvals: Record<string, unknown>;
-  };
-  dispatchTimeline: {
-    caseId: string;
-    reportedAt?: string;
-    dispatchStartedAt?: string;
-    arrivedSceneAt?: string;
-    patientContactAt?: string;
-    transportStartedAt?: string;
-    arrivedHospitalAt?: string;
-    handoffAcceptedAt?: string;
-  };
-  patientIdentity: Record<string, unknown>;
-  symptomsAndOccurrence: Record<string, unknown>;
-  patientAssessment: {
-    primarySurvey?: Record<string, unknown>;
-    consciousness: Record<string, unknown>;
-    pupils: Record<string, unknown>;
-    vitalSigns: Array<Record<string, unknown>>;
-    severityLevel: Record<string, unknown>;
-  };
-  paramedicAssessment: Record<string, unknown>;
-  emergencyCare: Record<string, unknown>;
-  medicalDirection: Record<string, unknown>;
-  transport: Record<string, unknown>;
-  handoff: Record<string, unknown>;
-  mutualAidAndNonTransport: Record<string, unknown>;
-  crewAndBarriers: Record<string, unknown>;
-  missingFields: string[];
-};
-
-export type AmbulanceActivityReport = {
-  reportId: string;
-  caseId: string;
-  version: number;
-  status: ReportStatus;
-  draft: Annex5ReportDraft;
-  reviewedFields: string[];
-  createdAt: string;
-  createdBy: string;
-  updatedAt: string;
-  finalizedAt?: string;
-  finalizedBy?: string;
 };
 
 export type ValidationResult<T> =

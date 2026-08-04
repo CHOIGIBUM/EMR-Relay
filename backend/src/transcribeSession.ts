@@ -9,7 +9,7 @@ import { SignatureV4 } from "@smithy/signature-v4";
 import type { AuthPrincipal } from "./types.js";
 
 const TABLE_NAME = process.env.TABLE_NAME || "ems-relay-local";
-const REGION = process.env.TRANSCRIBE_REGION || process.env.AWS_REGION || "us-west-2";
+const REGION = process.env.TRANSCRIBE_REGION || process.env.AWS_REGION || "ap-northeast-2";
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
   marshallOptions: { removeUndefinedValues: true },
 });

@@ -3,10 +3,13 @@ import { GetSecretValueCommand, SecretsManagerClient } from "@aws-sdk/client-sec
 export type ExternalApiSecrets = {
   NMC_SERVICE_KEY?: string;
   NMC_BASE_URL?: string;
+  NMC_REALTIME_BASE_URL?: string;
   HIRA_SERVICE_KEY?: string;
   HIRA_BASE_URL?: string;
   KAKAO_REST_API_KEY?: string;
   KAKAO_DIRECTIONS_URL?: string;
+  KMA_SERVICE_KEY?: string;
+  KMA_ULTRA_SRT_URL?: string;
 };
 
 const SECRET_NAME = process.env.EXTERNAL_API_SECRET_NAME || "ems-relay/external-api-keys";
@@ -25,6 +28,7 @@ function parseSecret(value: string): ExternalApiSecrets {
   const allowed = [
     "NMC_SERVICE_KEY",
     "NMC_BASE_URL",
+    "NMC_REALTIME_BASE_URL",
     "HIRA_SERVICE_KEY",
     "HIRA_BASE_URL",
     "KAKAO_REST_API_KEY",
@@ -32,6 +36,8 @@ function parseSecret(value: string): ExternalApiSecrets {
     "DATA_GO_KR_SERVICE_KEY_DECODED",
     "DATA_GO_KR_SERVICE_KEY_ENCODED",
     "KAKAO_MOBILITY_REST_API_KEY",
+    "KMA_SERVICE_KEY",
+    "KMA_ULTRA_SRT_URL",
   ] as const;
   const values: Record<string, string> = {};
   for (const key of allowed) {
@@ -44,11 +50,14 @@ function parseSecret(value: string): ExternalApiSecrets {
     ...(values.NMC_SERVICE_KEY || publicDataKey ? { NMC_SERVICE_KEY: values.NMC_SERVICE_KEY ?? publicDataKey } : {}),
     ...(values.HIRA_SERVICE_KEY || publicDataKey ? { HIRA_SERVICE_KEY: values.HIRA_SERVICE_KEY ?? publicDataKey } : {}),
     ...(values.NMC_BASE_URL ? { NMC_BASE_URL: values.NMC_BASE_URL } : {}),
+    ...(values.NMC_REALTIME_BASE_URL ? { NMC_REALTIME_BASE_URL: values.NMC_REALTIME_BASE_URL } : {}),
     ...(values.HIRA_BASE_URL ? { HIRA_BASE_URL: values.HIRA_BASE_URL } : {}),
     ...(values.KAKAO_REST_API_KEY || values.KAKAO_MOBILITY_REST_API_KEY
       ? { KAKAO_REST_API_KEY: values.KAKAO_REST_API_KEY ?? values.KAKAO_MOBILITY_REST_API_KEY }
       : {}),
     ...(values.KAKAO_DIRECTIONS_URL ? { KAKAO_DIRECTIONS_URL: values.KAKAO_DIRECTIONS_URL } : {}),
+    ...(values.KMA_SERVICE_KEY || publicDataKey ? { KMA_SERVICE_KEY: values.KMA_SERVICE_KEY ?? publicDataKey } : {}),
+    ...(values.KMA_ULTRA_SRT_URL ? { KMA_ULTRA_SRT_URL: values.KMA_ULTRA_SRT_URL } : {}),
   };
 }
 

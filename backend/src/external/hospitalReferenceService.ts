@@ -1,6 +1,6 @@
 import { fetchHiraFacilities } from "./hira.js";
 import { fetchKakaoRoute } from "./kakao.js";
-import { fetchNmcFacilities, type ReferenceFacility } from "./nmc.js";
+import { enrichFacilitiesWithNmcRealtime, fetchNmcFacilities, type ReferenceFacility } from "./nmc.js";
 import { getExternalApiSecrets } from "./secretProvider.js";
 
 function haversineKm(origin: { latitude: number; longitude: number }, facility: ReferenceFacility) {
@@ -68,8 +68,21 @@ export async function getHospitalReferences(latitude: number, longitude: number)
   ]);
   const nmc = settled[0].status === "fulfilled" ? settled[0].value : [];
   const hira = settled[1].status === "fulfilled" ? settled[1].value : [];
-  const facilities = mergeEmergencyFacilities(nmc, hira)
+  const candidates = mergeEmergencyFacilities(nmc, hira)
     .filter((facility) => facility.latitude !== undefined && facility.longitude !== undefined)
+    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b))
+    .slice(0, 8);
+  const discoveryFacilities = hira
+    .filter((facility) => facility.latitude !== undefined && facility.longitude !== undefined)
+    .filter((facility) => /^(상급종합|종합병원|병원)$/.test(facility.careLevel ?? ""))
+    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b));
+  const realtime = await enrichFacilitiesWithNmcRealtime(
+    secrets,
+    candidates,
+    undefined,
+    discoveryFacilities,
+  );
+  const facilities = realtime.facilities
     .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b))
     .slice(0, 8);
 
@@ -90,6 +103,7 @@ export async function getHospitalReferences(latitude: number, longitude: number)
       distance_km: route ? Number(route.distanceKm.toFixed(1)) : Number(straight.toFixed(1)),
       eta_minutes: route?.etaMinutes ?? null,
       reference_capabilities: facility.capabilities,
+      nmc_realtime_resources: facility.nmcRealtimeResources ?? null,
       acceptance_status: "not_provided",
       source: facility.sources.join("+") + (route ? "+KAKAO" : ""),
       reference_source: facility.sources.join("+"),
@@ -98,10 +112,17 @@ export async function getHospitalReferences(latitude: number, longitude: number)
       is_road_route: Boolean(route),
     };
   }));
+  const degradedSources = [
+    ...(settled[0].status === "rejected" ? ["nmc_location"] : []),
+    ...(settled[1].status === "rejected" ? ["hira"] : []),
+    ...(realtime.metadata.degraded ? ["nmc_realtime"] : []),
+  ];
   return {
     hospitals: sortHospitalReferences(hospitals),
     reference_at: new Date().toISOString(),
     source: hospitals.length ? "live_reference_apis" : "unavailable",
-    notice: "카카오 경로 성공 항목은 도로 ETA 순입니다. 실패 항목은 직선거리만 표시하며 ETA를 제공하지 않습니다. 수용 여부 정보가 아닙니다.",
+    degraded_sources: degradedSources,
+    nmc_realtime_status: realtime.metadata,
+    notice: `카카오 경로 성공 항목은 도로 ETA 순입니다. 실패 항목은 직선거리만 표시하며 ETA를 제공하지 않습니다. ${realtime.metadata.notice} 최종 수용 여부는 병원의 YES 응답으로만 확인해야 합니다.`,
   };
 }

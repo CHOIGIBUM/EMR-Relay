@@ -12,10 +12,7 @@ STATIC_ROUTES = (
     "login",
     "auth/callback",
     "paramedic",
-    "control",
     "hospital",
-    "reports",
-    "demo/workflow",
 )
 
 
@@ -36,7 +33,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--app-id", required=True)
     parser.add_argument("--profile", required=True)
-    parser.add_argument("--region", default="us-west-2")
+    parser.add_argument("--region", default="ap-northeast-2")
     parser.add_argument("--headers-file", required=True, type=Path)
     args = parser.parse_args()
 

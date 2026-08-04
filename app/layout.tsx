@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
 
-const title = "EMS Relay | 심혈관 응급환자 실시간 인계";
+const title = "EMS Relay | 응급환자 병원 연계";
 const description =
-  "구급대원, 이송조정 상황실, 병원이 확인된 환자정보와 타임라인을 공유하고 구급활동 기록 초안까지 연결하는 응급환자 이송·인계 MVP";
-const productionOrigin = "https://main.d2edch3bt6kxej.amplifyapp.com";
+  "구급대원과 병원 수용 담당자가 확인된 환자 카드와 병원 회신을 실시간으로 공유하는 응급환자 이송 연계 서비스";
+const productionOrigin = "https://main.d1b1dqlcfz85e3.amplifyapp.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(productionOrigin),

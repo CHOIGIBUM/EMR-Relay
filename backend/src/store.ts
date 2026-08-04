@@ -21,7 +21,6 @@ import type {
   ConfirmRequest,
   DirectFactsRequest,
   FactPath,
-  PrincipalRole,
 } from "./types.js";
 
 const TABLE_NAME = process.env.TABLE_NAME || "ems-relay-local";
@@ -36,7 +35,7 @@ const eventSk = (occurredAt: string, eventId: string) => `EVENT#${occurredAt}#${
 const STATE_SK = "STATE#CONFIRMED";
 const META_SK = "META";
 
-type ConfirmationActorRole = Extract<PrincipalRole, "paramedic" | "admin">;
+type ConfirmationActorRole = "paramedic";
 type ConfirmationEventType = Extract<CaseEventType, "PATIENT_FACTS_CONFIRMED" | "REASSESSMENT_CONFIRMED">;
 
 export type ConfirmationEventPayload = {
@@ -107,6 +106,16 @@ function caseMetaFromItem(item: Record<string, unknown> | undefined): CaseMeta |
     createdAt: typeof item.createdAt === "string" ? item.createdAt : new Date(0).toISOString(),
     updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString(),
     ...(typeof item.scenario === "string" ? { scenario: item.scenario } : {}),
+    ...(typeof item.reportTime === "string" ? { reportTime: item.reportTime } : {}),
+    ...(typeof item.reportSummary === "string" ? { reportSummary: item.reportSummary } : {}),
+    ...(typeof item.reportDetail === "string" ? { reportDetail: item.reportDetail } : {}),
+    ...(typeof item.estimatedAge === "string" ? { estimatedAge: item.estimatedAge } : {}),
+    ...(typeof item.estimatedSex === "string" ? { estimatedSex: item.estimatedSex } : {}),
+    ...(typeof item.reporter === "string" ? { reporter: item.reporter } : {}),
+    ...(typeof item.station === "string" ? { station: item.station } : {}),
+    ...(typeof item.sceneAddress === "string" ? { sceneAddress: item.sceneAddress } : {}),
+    ...(typeof item.sceneLatitude === "number" ? { sceneLatitude: item.sceneLatitude } : {}),
+    ...(typeof item.sceneLongitude === "number" ? { sceneLongitude: item.sceneLongitude } : {}),
     ...(typeof item.agency === "string" ? { agency: item.agency } : {}),
     ...(typeof item.unitId === "string" ? { unitId: item.unitId } : {}),
     ...(typeof item.vehicleNumber === "string" ? { vehicleNumber: item.vehicleNumber } : {}),

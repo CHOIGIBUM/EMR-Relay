@@ -1,2 +1,5 @@
-import OperationalWorkspace from "@/components/OperationalWorkspace";
-export default function HospitalPage() { return <OperationalWorkspace role="hospital" />; }
+import V2RolePage from "@/components/v2/V2RolePage";
+
+export default function HospitalPage() {
+  return <V2RolePage role="hospital" />;
+}

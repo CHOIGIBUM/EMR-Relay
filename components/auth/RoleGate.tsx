@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import type { OperationalRole } from "@/lib/operationalTypes";
+import type { AppRole } from "@/lib/authRole";
 import { useAuth } from "./AuthProvider";
 import AuthBrand from "./AuthBrand";
 import styles from "./Auth.module.css";
 
-export default function RoleGate({ allow, children }: { allow: OperationalRole[]; children: ReactNode }) {
+export default function RoleGate({ allow, children }: { allow: readonly AppRole[]; children: ReactNode }) {
   const auth = useAuth();
   const permitted = auth.user?.roles.some((role) => allow.includes(role)) ?? false;
   useEffect(() => {
