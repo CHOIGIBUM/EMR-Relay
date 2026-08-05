@@ -6,7 +6,15 @@ import { buildKakaoDirectionsLink } from "@/lib/v2/map";
 import type { Coordinate } from "@/lib/v2/types";
 import styles from "./KakaoRouteMap.module.css";
 
-export type KakaoMapInstance = { setBounds: (bounds: unknown) => void; relayout: () => void };
+export type KakaoMapInstance = {
+  setBounds: (bounds: unknown) => void;
+  relayout: () => void;
+  panTo: (position: unknown) => void;
+  getLevel: () => number;
+  setLevel: (level: number, options?: { animate?: boolean; anchor?: unknown }) => void;
+  setMinLevel: (level: number) => void;
+  setMaxLevel: (level: number) => void;
+};
 export type KakaoMapsApi = {
   load: (callback: () => void) => void;
   LatLng: new (latitude: number, longitude: number) => unknown;

@@ -687,6 +687,21 @@
   background: #fff;
 }
 
+.assessmentHeader {
+  position: relative;
+  z-index: 2;
+  min-width: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.assessmentFooter {
+  position: relative;
+  z-index: 5;
+  min-width: 0;
+  background: #fff;
+}
+
 .assessmentNav button {
   display: flex;
   align-items: center;
@@ -1600,6 +1615,170 @@
   background: #082c47;
 }
 
+.mapHospitalOverlay {
+  --map-marker-x: 0px;
+  --map-marker-y: 0px;
+  position: relative;
+  width: 30px;
+  height: 30px;
+  transform: translate(var(--map-marker-x), var(--map-marker-y));
+  pointer-events: none;
+}
+
+.mapMarkerDot {
+  position: absolute;
+  inset: 5px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 4px solid #fff;
+  border-radius: 50%;
+  background: #6da6bd;
+  box-shadow: 0 2px 8px rgba(8, 44, 71, .34);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: transform .16s ease, box-shadow .16s ease;
+}
+
+.mapMarkerDot:hover,
+.mapMarkerDot:focus-visible,
+.mapHospitalOverlay[data-selected="true"] .mapMarkerDot {
+  z-index: 3;
+  outline: 0;
+  transform: scale(1.25);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .88), 0 3px 12px rgba(8, 44, 71, .42);
+}
+
+.mapHospitalOverlay[data-status="VIEWED"] .mapMarkerDot {
+  background: #2aa273;
+}
+
+.mapHospitalOverlay[data-status="ACCEPTED"] .mapMarkerDot {
+  background: #1c84ef;
+}
+
+.mapHospitalOverlay[data-status="DECLINED"] .mapMarkerDot {
+  background: #d94a51;
+}
+
+.mapHospitalOverlay[data-status="CLOSED"] .mapMarkerDot {
+  background: #8797a0;
+}
+
+.mapMarkerInfo {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: 31px;
+  width: min(230px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid #bfd5dc;
+  border-radius: 12px;
+  color: #173a50;
+  background: rgba(255, 255, 255, .98);
+  box-shadow: 0 10px 24px rgba(8, 44, 71, .2);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 5px);
+  transition: opacity .14s ease, transform .14s ease;
+}
+
+.mapHospitalOverlay[data-selected="true"] {
+  z-index: 12;
+}
+
+.mapHospitalOverlay[data-selected="true"] .mapMarkerInfo {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.mapMarkerInfo strong {
+  display: block;
+  max-width: 180px;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mapMarkerStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  color: #54707d;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.mapMarkerStatus::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6da6bd;
+  content: "";
+}
+
+.mapHospitalOverlay[data-status="VIEWED"] .mapMarkerStatus::before { background: #2aa273; }
+.mapHospitalOverlay[data-status="ACCEPTED"] .mapMarkerStatus::before { background: #1c84ef; }
+.mapHospitalOverlay[data-status="DECLINED"] .mapMarkerStatus::before { background: #d94a51; }
+
+.mapMarkerInfo dl {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 7px;
+  margin: 10px 0 0;
+}
+
+.mapMarkerInfo dl div {
+  padding: 7px 8px;
+  border-radius: 8px;
+  background: #eff5f7;
+}
+
+.mapMarkerInfo dt {
+  color: #6b818c;
+  font-size: 9px;
+}
+
+.mapMarkerInfo dd {
+  margin: 2px 0 0;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.mapMarkerInfo p {
+  margin: 8px 0 0;
+  color: #607984;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.mapMarkerClose {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #5d7480;
+  background: transparent;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mapMarkerClose:hover,
+.mapMarkerClose:focus-visible {
+  color: #082c47;
+  background: #edf4f6;
+  outline: 2px solid #69a8bc;
+}
+
 .mapFallback {
   position: absolute;
   inset: 0 0 44px;
@@ -1713,6 +1892,10 @@
   background: #fff;
 }
 
+.responseList article > div {
+  min-width: 0;
+}
+
 .responseList article[data-status="ACCEPTED"] {
   border-color: #72aef2;
   box-shadow: inset 4px 0 #2683df;
@@ -1748,9 +1931,12 @@
 .responseList article > b {
   display: flex;
   align-items: center;
+  align-self: start;
+  justify-self: end;
   gap: 4px;
   color: #647c88;
   font-size: 11px;
+  white-space: nowrap;
 }
 
 .responseList article[data-status="ACCEPTED"] > b {
@@ -1767,12 +1953,27 @@
 
 .responseList article > button {
   grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
   min-height: 43px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 14px;
   border: 0;
   border-radius: 11px;
   color: #fff;
   background: #187ccc;
   font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.responseList article > button svg {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
 }
 
 .expandButton {

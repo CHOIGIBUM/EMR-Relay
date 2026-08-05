@@ -1105,6 +1105,7 @@ export class GraphQLEmsV2Api implements EmsV2Api {
     const incident = await this.getCase(caseId);
     const request = incident.hospitalRequests?.find((candidate) => candidate.id === requestId);
     if (!request) throw new Error("선택한 병원 요청을 찾을 수 없습니다.");
+    if (request.status !== "ACCEPTED") throw new Error("수용 가능 회신을 받은 병원만 선택할 수 있습니다.");
     return this.commandAndRefresh(caseId, "DESTINATION_CONFIRMED_BY_PARAMEDIC", { requestId, hospitalId: request.hospitalId });
   }
 

@@ -9,9 +9,43 @@ import styles from "./V2.module.css";
 export type MatchMapMarker = {
   id: string;
   name: string;
+  address?: string;
   location: Coordinate;
   status: HospitalRequestStatus;
+  distanceKm: number;
+  etaMinutes: number;
 };
+
+const MIN_MAP_LEVEL = 5;
+const MAX_MAP_LEVEL = 11;
+const SELECTED_HOSPITAL_LEVEL = 8;
+
+const collisionOffsets = [
+  [0, 0],
+  [18, 0],
+  [-18, 0],
+  [0, 18],
+  [0, -18],
+  [13, 13],
+  [-13, 13],
+  [13, -13],
+  [-13, -13],
+] as const;
+
+export function initialHospitalMapLevel(radiusKm: number) {
+  const level = radiusKm <= 15 ? 7 : radiusKm <= 30 ? 8 : radiusKm <= 60 ? 9 : 10;
+  return Math.min(MAX_MAP_LEVEL, Math.max(MIN_MAP_LEVEL, level));
+}
+
+function collisionOffset(marker: MatchMapMarker, occupiedCells: Map<string, number>) {
+  // Hospitals sharing a roughly 110 m map cell are spread by a few screen pixels.
+  // Their geographic coordinates remain unchanged and the information card keeps
+  // the exact route distance/ETA supplied by the backend.
+  const cell = `${marker.location.latitude.toFixed(3)}:${marker.location.longitude.toFixed(3)}`;
+  const index = occupiedCells.get(cell) ?? 0;
+  occupiedCells.set(cell, index + 1);
+  return collisionOffsets[index % collisionOffsets.length];
+}
 
 const expansionReasonLabel: Record<MatchingExpansionReason, string> = {
   INITIAL_REQUEST: "최초 요청",
@@ -70,9 +104,12 @@ export default function HospitalMatchMap({
     loadKakaoMaps(appKey).then((maps) => {
       if (cancelled || !containerRef.current) return;
       const center = new maps.LatLng(scene.latitude, scene.longitude);
-      const map = new maps.Map(containerRef.current, { center, level: 8 });
-      const bounds = new maps.LatLngBounds();
-      bounds.extend(center);
+      const map = new maps.Map(containerRef.current, {
+        center,
+        level: initialHospitalMapLevel(radiusKm),
+      });
+      map.setMinLevel(MIN_MAP_LEVEL);
+      map.setMaxLevel(MAX_MAP_LEVEL);
 
       if (nextRadiusKm) {
         new maps.Circle({
@@ -112,20 +149,81 @@ export default function HospitalMatchMap({
         new maps.CustomOverlay({ map, position: center, content: pulseNode, yAnchor: .5 });
       }
 
+      const occupiedCells = new Map<string, number>();
+      let activeMarkerNode: HTMLDivElement | null = null;
+
       markers.forEach((marker) => {
         const position = new maps.LatLng(marker.location.latitude, marker.location.longitude);
-        const node = document.createElement("button");
-        node.type = "button";
-        node.className = styles.mapPin;
-        node.dataset.status = marker.status;
-        node.textContent = marker.name;
-        node.title = `${marker.name} · ${label(marker.status)}`;
-        new maps.CustomOverlay({ map, position, content: node, yAnchor: 1 });
-        bounds.extend(position);
+        const [offsetX, offsetY] = collisionOffset(marker, occupiedCells);
+        const overlayNode = document.createElement("div");
+        overlayNode.className = styles.mapHospitalOverlay;
+        overlayNode.dataset.status = marker.status;
+        overlayNode.style.setProperty("--map-marker-x", `${offsetX}px`);
+        overlayNode.style.setProperty("--map-marker-y", `${offsetY}px`);
+
+        const markerButton = document.createElement("button");
+        markerButton.type = "button";
+        markerButton.className = styles.mapMarkerDot;
+        markerButton.title = `${marker.name} · ${label(marker.status)}`;
+        markerButton.setAttribute("aria-label", `${marker.name}, ${label(marker.status)}, ${marker.etaMinutes}분, ${marker.distanceKm.toFixed(1)}km`);
+        markerButton.setAttribute("aria-expanded", "false");
+
+        const information = document.createElement("article");
+        information.className = styles.mapMarkerInfo;
+        information.setAttribute("role", "dialog");
+        information.setAttribute("aria-label", `${marker.name} 병원 요청 정보`);
+        information.innerHTML = `<strong></strong><span class="${styles.mapMarkerStatus}"></span><dl><div><dt>예상 이동</dt><dd></dd></div><div><dt>도로 거리</dt><dd></dd></div></dl>`;
+        const nameNode = information.querySelector("strong");
+        const statusNode = information.querySelector(`.${styles.mapMarkerStatus}`);
+        const values = information.querySelectorAll("dd");
+        if (nameNode) nameNode.textContent = marker.name;
+        if (statusNode) statusNode.textContent = label(marker.status);
+        if (values[0]) values[0].textContent = `${marker.etaMinutes}분`;
+        if (values[1]) values[1].textContent = `${marker.distanceKm.toFixed(1)}km`;
+        if (marker.address) {
+          const addressNode = document.createElement("p");
+          addressNode.textContent = marker.address;
+          information.appendChild(addressNode);
+        }
+
+        const closeButton = document.createElement("button");
+        closeButton.type = "button";
+        closeButton.className = styles.mapMarkerClose;
+        closeButton.setAttribute("aria-label", `${marker.name} 정보 닫기`);
+        closeButton.textContent = "×";
+        information.appendChild(closeButton);
+
+        const closeInformation = () => {
+          overlayNode.dataset.selected = "false";
+          markerButton.setAttribute("aria-expanded", "false");
+          if (activeMarkerNode === overlayNode) activeMarkerNode = null;
+        };
+        markerButton.addEventListener("click", () => {
+          if (activeMarkerNode && activeMarkerNode !== overlayNode) {
+            activeMarkerNode.dataset.selected = "false";
+            activeMarkerNode.querySelector("button")?.setAttribute("aria-expanded", "false");
+          }
+          const willOpen = overlayNode.dataset.selected !== "true";
+          overlayNode.dataset.selected = String(willOpen);
+          markerButton.setAttribute("aria-expanded", String(willOpen));
+          activeMarkerNode = willOpen ? overlayNode : null;
+          if (willOpen) {
+            map.panTo(position);
+            if (map.getLevel() > SELECTED_HOSPITAL_LEVEL) {
+              map.setLevel(SELECTED_HOSPITAL_LEVEL, { animate: true, anchor: position });
+            }
+          }
+        });
+        closeButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          closeInformation();
+        });
+
+        overlayNode.append(markerButton, information);
+        new maps.CustomOverlay({ map, position, content: overlayNode, yAnchor: 0.5 });
       });
-      // Keep nearby hospital labels readable. The geographic circles may extend
-      // beyond the viewport; the radar pulse and range status communicate scope.
-      map.setBounds(bounds);
+      // Keep the scene as the stable visual origin while the request range grows.
+      // The full 15-120 km circle intentionally does not force a mobile-unusable fit.
       window.setTimeout(() => map.relayout(), 0);
       setStatus("ready");
     }).catch(() => {

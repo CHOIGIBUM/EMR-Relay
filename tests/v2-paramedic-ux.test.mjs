@@ -32,6 +32,18 @@ test("takes patient contact directly into a concise three-step assessment", () =
   assert.match(source, /assessmentStep === 0 \? "BASIC" : assessmentStep === 1 \? "CPSS" : "VITALS"/);
 });
 
+test("keeps the assessment stepper in an independent header row", () => {
+  const source = read("components/v2/ParamedicApp.tsx");
+  const styles = read("components/v2/V2.module.css");
+
+  assert.match(source, /className=\{styles\.assessmentHeader\}[\s\S]*?className=\{styles\.assessmentNav\}[\s\S]*?<\/nav>[\s\S]*?<\/div>\s*<div className=\{styles\.mobileScroll\}>/);
+  assert.match(source, /aria-label="환자 상태 입력 단계"/);
+  assert.match(source, /aria-current=\{assessmentStep === index \? "step" : undefined\}/);
+  assert.match(source, /className=\{styles\.assessmentFooter\}[\s\S]*?styles\.stickyFormError[\s\S]*?styles\.stickyAction/);
+  assert.match(styles, /\.assessmentHeader\s*\{[\s\S]*?position:\s*relative;[\s\S]*?z-index:\s*2;[\s\S]*?overflow:\s*hidden;/);
+  assert.match(styles, /\.assessmentFooter\s*\{[\s\S]*?position:\s*relative;[\s\S]*?z-index:\s*5;/);
+});
+
 test("uses genuine hold-to-talk with visible live text and automatic structuring", () => {
   const source = read("components/v2/PttInput.tsx");
   assert.match(source, /onPointerDown=\{handlePointerDown\}/);
@@ -88,6 +100,17 @@ test("renders labeled route endpoints, range circles, expansion controls, and ac
   assert.match(routeSource, /routeLabelDestination/);
   assert.match(routeSource, /new maps\.Polyline/);
   assert.match(matchMapSource, /new maps\.Circle/);
+  assert.match(matchMapSource, /initialHospitalMapLevel\(radiusKm\)/);
+  assert.match(matchMapSource, /map\.setMinLevel\(MIN_MAP_LEVEL\)/);
+  assert.match(matchMapSource, /map\.setMaxLevel\(MAX_MAP_LEVEL\)/);
+  assert.match(matchMapSource, /mapMarkerDot/);
+  assert.match(matchMapSource, /mapMarkerInfo/);
+  assert.match(matchMapSource, /marker\.etaMinutes/);
+  assert.match(matchMapSource, /marker\.distanceKm\.toFixed\(1\)/);
+  assert.match(matchMapSource, /map\.panTo\(position\)/);
+  assert.match(matchMapSource, /map\.setLevel\(SELECTED_HOSPITAL_LEVEL/);
+  assert.doesNotMatch(matchMapSource, /node\.textContent = marker\.name/);
+  assert.doesNotMatch(matchMapSource, /map\.setBounds\(bounds\)/);
   assert.match(matchMapSource, /현재 요청 반경 \{radiusKm\}km/);
   assert.match(matchMapSource, /radiusKm === 0 \? " · 실행 전"/);
   assert.match(matchMapSource, /최초 요청 \$\{nextRadiusKm\}km 실행 대기/);
@@ -108,5 +131,20 @@ test("renders labeled route endpoints, range circles, expansion controls, and ac
   assert.match(paramedicSource, /if \(!acceptedTrackingReadyRef\.current\)[\s\S]*?acceptedRequestIdsRef\.current = currentIds/);
   assert.match(paramedicSource, /allAccepted\.filter\(\(request\) => !acceptedRequestIdsRef\.current\.has\(request\.id\)\)/);
   assert.match(paramedicSource, /hospital\?\.location \?\? request\.hospitalLocation/);
+  assert.match(paramedicSource, /distanceKm: request\.distanceKm/);
+  assert.match(paramedicSource, /etaMinutes: request\.etaMinutes/);
   assert.match(paramedicSource, /destinationHospital\?\.location \?\? destinationRequest\?\.hospitalLocation/);
+});
+
+test("moves an accepted hospital selection to the authoritative route stage", () => {
+  const source = read("components/v2/ParamedicApp.tsx");
+  const styles = read("components/v2/V2.module.css");
+
+  assert.match(source, /const selectDestination = async \(request: HospitalRequest\)/);
+  assert.match(source, /await run\(\(\) => api\.selectDestination\(incident\.id, request\.id\)\);[\s\S]*?setMatchingRequestedId\(null\)/);
+  assert.match(source, /request\.status !== "ACCEPTED"/);
+  assert.match(source, /incident\?\.stage === "matching"[\s\S]*?incident\?\.stage === "card-confirmed" && matchingRequestedId === incident\.id/);
+  assert.match(source, /incident\.stage === "patient-contact" \? renderAssessment\(\)[\s\S]*?: showMatching \? renderMatching\(\)[\s\S]*?: incident\.stage === "card-confirmed" \? renderCard\(\)/);
+  assert.doesNotMatch(source, /incident\.stage === "matching" \|\| matchingRequestedId === incident\.id/);
+  assert.match(styles, /\.responseList article > button \{[\s\S]*?width: 100%;[\s\S]*?display: inline-flex;[\s\S]*?white-space: nowrap;/);
 });

@@ -359,3 +359,68 @@ test("encodes manual measuredAt as fact observedAt and round-trips the same HH:M
   assert.equal(observedDate.getSeconds(), 0);
   assert.equal(incident.assessment.measuredAt, "14:26");
 });
+
+test("confirms an accepted hospital with both request and hospital identifiers", async () => {
+  const caseId = "GW-STROKE-001";
+  const requestId = "REQ-GW-STROKE-001-A2200012";
+  const hospitalId = "A2200012";
+  let getCaseCount = 0;
+  let commandInput;
+
+  const requestRow = {
+    requestId,
+    caseId,
+    hospitalId,
+    hospitalName: "속초의료원",
+    status: "ACCEPTED",
+    wave: 1,
+    distanceKm: 8.4,
+    etaMinutes: 13,
+    createdAt: "2026-08-05T01:02:03.000Z",
+    updatedAt: "2026-08-05T01:03:03.000Z",
+  };
+  const api = new GraphQLEmsV2Api({
+    endpoint: ENDPOINT,
+    fetchImpl: async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      if (body.operationName === "executeCommand") {
+        commandInput = body.variables.input;
+        return graphQlResponse({
+          executeCommand: {
+            caseId,
+            version: 9,
+            eventId: "EVENT-DESTINATION-001",
+            eventType: "DESTINATION_CONFIRMED_BY_PARAMEDIC",
+            stage: "DESTINATION_CONFIRMED",
+            occurredAt: "2026-08-05T01:04:03.000Z",
+            requestId,
+            hospitalId,
+            payload: "{}",
+          },
+        });
+      }
+
+      assert.equal(body.operationName, "getCase");
+      getCaseCount += 1;
+      const selected = getCaseCount > 1;
+      return graphQlResponse({
+        getCase: {
+          caseId,
+          version: selected ? 9 : 8,
+          stage: selected ? "DESTINATION_CONFIRMED" : "HOSPITAL_REQUESTED",
+          confirmedState: JSON.stringify({ facts: {} }),
+          meta: JSON.stringify(selected ? { destinationHospitalId: hospitalId } : {}),
+          events: "[]",
+          hospitalRequests: JSON.stringify([{ ...requestRow, ...(selected ? { selectionStatus: "SELECTED" } : {}) }]),
+        },
+      });
+    },
+  });
+
+  const incident = await api.selectDestination(caseId, requestId);
+
+  assert.equal(commandInput.type, "DESTINATION_CONFIRMED_BY_PARAMEDIC");
+  assert.deepEqual(JSON.parse(commandInput.payload), { requestId, hospitalId });
+  assert.equal(incident.stage, "destination-selected");
+  assert.equal(incident.destinationRequestId, requestId);
+});

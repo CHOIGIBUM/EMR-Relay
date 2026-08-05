@@ -26,6 +26,7 @@ import KakaoRouteMap from "./KakaoRouteMap";
 import {
   DEMO_RESET_CONFIRMATION,
   type DispatchCase,
+  type HospitalRequest,
   type PatientAssessment,
   type StrokeSide,
   type SpeechFinding,
@@ -145,7 +146,15 @@ export default function ParamedicApp() {
     const hospital = store?.hospitals.find((item) => item.id === request.hospitalId);
     const location = hospital?.location ?? request.hospitalLocation;
     const name = hospital?.name ?? request.hospitalName;
-    return location && name ? [{ id: request.id, name, location, status: request.status }] : [];
+    return location && name ? [{
+      id: request.id,
+      name,
+      address: hospital?.address ?? request.hospitalAddress,
+      location,
+      status: request.status,
+      distanceKm: request.distanceKm,
+      etaMinutes: request.etaMinutes,
+    }] : [];
   }), [requests, store?.hospitals]);
   const destinationRequest = requests.find((request) => request.id === incident?.destinationRequestId) ?? null;
   const destinationHospital = store?.hospitals.find((hospital) => hospital.id === destinationRequest?.hospitalId) ?? null;
@@ -256,6 +265,16 @@ export default function ParamedicApp() {
     try {
       await run(() => api.expandMatching(incident.id));
       setRangeNotice(`요청 범위를 확대했습니다. 최대 ${nextRadius}km 후보를 확인합니다.`);
+    } catch { /* V2Provider renders the message. */ }
+  };
+
+  const selectDestination = async (request: HospitalRequest) => {
+    if (!incident || request.status !== "ACCEPTED") return;
+    try {
+      await run(() => api.selectDestination(incident.id, request.id));
+      setMatchingRequestedId(null);
+      setRangeNotice(null);
+      setAcceptanceAlert(null);
     } catch { /* V2Provider renders the message. */ }
   };
 
@@ -385,8 +404,10 @@ export default function ParamedicApp() {
     const voiceFocus: VoiceUpdateFocus = assessmentStep === 0 ? "BASIC" : assessmentStep === 1 ? "CPSS" : "VITALS";
     return (
       <div className={styles.mobilePageAction}>
-        {pageBar("환자 상태 입력", () => { setAssessmentOpen(false); setValidation(null); })}
-        <nav className={styles.assessmentNav}>{["기본", "CPSS", "활력·시간"].map((label, index) => <button key={label} type="button" disabled={index > assessmentMaxStep} data-active={assessmentStep === index} onClick={() => { setAssessmentStep(index); setValidation(null); }}><i>{index + 1}</i>{label}</button>)}</nav>
+        <div className={styles.assessmentHeader}>
+          {pageBar("환자 상태 입력", () => { setAssessmentOpen(false); setValidation(null); })}
+          <nav className={styles.assessmentNav} aria-label="환자 상태 입력 단계">{["기본", "CPSS", "활력·시간"].map((label, index) => <button key={label} type="button" disabled={index > assessmentMaxStep} aria-current={assessmentStep === index ? "step" : undefined} data-active={assessmentStep === index} onClick={() => { setAssessmentStep(index); setValidation(null); }}><i>{index + 1}</i>{label}</button>)}</nav>
+        </div>
         <div className={styles.mobileScroll}>
           <PttInput
             key={`voice-step-${assessmentStep}`}
@@ -431,8 +452,10 @@ export default function ParamedicApp() {
             </div>
           </section> : null}
         </div>
-        {validation ? <p className={styles.stickyFormError} role="alert">{validation}</p> : null}
-        <div className={styles.stickyAction}><button disabled={pending} onClick={() => void nextAssessment()}>{assessmentStep < 2 ? <>다음 확인 <ChevronRight /></> : <>환자 카드 확정 <Check /></>}</button></div>
+        <div className={styles.assessmentFooter}>
+          {validation ? <p className={styles.stickyFormError} role="alert">{validation}</p> : null}
+          <div className={styles.stickyAction}><button disabled={pending} onClick={() => void nextAssessment()}>{assessmentStep < 2 ? <>다음 확인 <ChevronRight /></> : <>환자 카드 확정 <Check /></>}</button></div>
+        </div>
       </div>
     );
   };
@@ -471,7 +494,7 @@ export default function ParamedicApp() {
               return <article key={request.id} data-status={request.status}>
                 <div><span>{request.etaMinutes}분 · {request.distanceKm.toFixed(1)}km</span><h3>{hospital?.name ?? request.hospitalName ?? request.hospitalId}</h3>{hospital?.address || request.hospitalAddress ? <p><MapPin /> {hospital?.address ?? request.hospitalAddress}</p> : null}</div>
                 <b>{request.status === "ACCEPTED" ? <><CheckCircle2 /> 수용 가능</> : request.status === "DECLINED" ? <><X /> 수용 곤란</> : request.status === "VIEWED" ? <><CircleDot /> 열람</> : <><Clock3 /> 요청 중</>}</b>
-                {request.status === "ACCEPTED" ? <button disabled={pending} onClick={() => void doRun(() => api.selectDestination(incident.id, request.id))}>이 병원 선택 <ChevronRight /></button> : null}
+                {request.status === "ACCEPTED" ? <button type="button" disabled={pending} onClick={() => void selectDestination(request)}>이 병원 선택 <ChevronRight /></button> : null}
               </article>;
             })}
           </div>
@@ -509,12 +532,15 @@ export default function ParamedicApp() {
     </div>
   ) : null;
 
+  const showMatching = incident?.stage === "matching"
+    || (incident?.stage === "card-confirmed" && matchingRequestedId === incident.id);
+
   const content = !incident ? renderCaseList()
     : assessmentOpen || incident.stage === "assessing" ? renderAssessment()
       : ["assigned", "enroute", "scene-arrived"].includes(incident.stage) ? renderDispatch()
         : incident.stage === "patient-contact" ? renderAssessment()
-          : incident.stage === "card-confirmed" ? renderCard()
-            : incident.stage === "matching" || matchingRequestedId === incident.id ? renderMatching()
+          : showMatching ? renderMatching()
+            : incident.stage === "card-confirmed" ? renderCard()
               : ["destination-selected", "transporting"].includes(incident.stage) ? renderRoute()
                 : renderArrived();
 
