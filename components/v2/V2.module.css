@@ -604,6 +604,7 @@
 }
 
 .stickyAction button,
+.stickyAction a,
 .arrival button,
 .expandButton {
   min-height: 58px;
@@ -619,9 +620,11 @@
   box-shadow: 0 10px 23px rgba(7, 136, 148, 0.2);
   font-size: 17px;
   font-weight: 900;
+  text-decoration: none;
 }
 
-.stickyAction button:disabled {
+.stickyAction button:disabled,
+.stickyAction a[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: .48;
 }

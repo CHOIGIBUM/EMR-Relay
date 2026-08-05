@@ -34,6 +34,7 @@ import {
 } from "@/lib/v2/types";
 import { applyVoiceChangesToAssessment } from "@/lib/v2/voiceProposal";
 import { getDispatchRoute } from "@/lib/v2/dispatchRoutes";
+import { buildKakaoDirectionsLink } from "@/lib/v2/map";
 import Brand from "./Brand";
 import PatientCard from "./PatientCard";
 import PttInput from "./PttInput";
@@ -509,6 +510,12 @@ export default function ParamedicApp() {
 
   const renderRoute = () => {
     if (!incident || !destinationRequest) return null;
+    const directionsUrl = destinationLocation
+      ? buildKakaoDirectionsLink(
+        { ...incident.scene, name: "환자 현장" },
+        { ...destinationLocation, name: destinationName },
+      )
+      : null;
     return (
       <div className={styles.mobilePageAction}>
         {pageBar(incident.stage === "transporting" ? "병원 이동" : "이송지 확인", () => incident.stage === "destination-selected" ? undefined : goHome())}
@@ -518,7 +525,19 @@ export default function ParamedicApp() {
           <section className={styles.routeSummary}><span><Route /><small>예상 이동</small><strong>{destinationRequest.etaMinutes}분</strong></span><span><Navigation /><small>도로 거리</small><strong>{destinationRequest.distanceKm.toFixed(1)}km</strong></span>{destinationAddress ? <p><MapPin /> {destinationAddress}</p> : null}</section>
         </div>
         <div className={styles.stickyAction}>
-          {incident.stage === "destination-selected" ? <button disabled={pending} onClick={() => void doRun(() => api.startTransport(incident.id))}><Navigation /> 병원으로 출발</button> : null}
+          {incident.stage === "destination-selected" && directionsUrl ? <a
+            href={directionsUrl}
+            target="_blank"
+            rel="noreferrer"
+            aria-disabled={pending}
+            onClick={(event) => {
+              if (pending) {
+                event.preventDefault();
+                return;
+              }
+              void doRun(() => api.startTransport(incident.id));
+            }}
+          ><Navigation /> 병원으로 출발</a> : null}
           {incident.stage === "transporting" ? <button disabled={pending} onClick={() => void doRun(() => api.arriveHospital(incident.id))}><HospitalIcon /> 병원 도착</button> : null}
         </div>
       </div>
