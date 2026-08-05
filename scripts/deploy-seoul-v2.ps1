@@ -12,6 +12,10 @@ param(
   [string]$ModelId = "global.anthropic.claude-haiku-4-5-20251001-v1:0",
   [string]$ParamedicSub = "",
   [string[]]$HospitalIds = @(),
+  [string[]]$HospitalNetworkIds = @(
+    "A2200012", "A2200046", "A2200010", "A2200011", "A2200005",
+    "A2200008", "A2200038", "A2200003", "A2200007"
+  ),
   [switch]$SkipSeed,
   [switch]$ResetSeed,
   [int]$DeploymentTimeoutSeconds = 600,
@@ -284,6 +288,11 @@ if ($Region -ne "ap-northeast-2") { throw "This script is restricted to ap-north
 if ($StackName -ne "ems-relay-seoul-v2") { throw "Unexpected Seoul stack name: $StackName" }
 if ($AmplifyAppId -ne "d1b1dqlcfz85e3") { throw "Unexpected protected Amplify app id: $AmplifyAppId" }
 if ($SkipSeed -and $ResetSeed) { throw "-SkipSeed and -ResetSeed cannot be used together." }
+$HospitalNetworkIds = @($HospitalNetworkIds | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
+if (-not $HospitalNetworkIds.Count) { throw "At least one HospitalNetworkId is required." }
+foreach ($HospitalNetworkId in $HospitalNetworkIds) {
+  if ($HospitalNetworkId -notmatch '^[A-Za-z0-9_-]{2,128}$') { throw "HospitalNetworkId format is invalid." }
+}
 if (-not $SkipSeed) {
   $HospitalIds = @($HospitalIds | ForEach-Object { ([string]$_).Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Select-Object -Unique)
   if ($HospitalIds.Count -ne 3) { throw "Exactly three unique HospitalIds are required unless -SkipSeed is used." }
@@ -381,7 +390,8 @@ try {
     "BedrockModelId=$ModelId",
     "CognitoCallbackUrls=$CallbackUrl",
     "CognitoLogoutUrls=$LogoutUrl",
-    "ExternalApiSecretName=$ExternalApiSecretName"
+    "ExternalApiSecretName=$ExternalApiSecretName",
+    "HospitalNetworkAllowedIds=$($HospitalNetworkIds -join ',')"
   )
   $DeployArguments = @(
     "deploy", "--template-file", (Join-Path $BackendRoot ".aws-sam-v2\template.yaml"),

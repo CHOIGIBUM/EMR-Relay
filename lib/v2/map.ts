@@ -1,5 +1,8 @@
 import type { Coordinate } from "./types";
 
-export function buildKakaoDirectionsLink(destination: Coordinate & { name: string }): string {
-  return `https://map.kakao.com/link/to/${encodeURIComponent(destination.name)},${destination.latitude},${destination.longitude}`;
+export type NamedCoordinate = Coordinate & { name: string };
+
+export function buildKakaoDirectionsLink(origin: NamedCoordinate, destination: NamedCoordinate): string {
+  const point = ({ name, latitude, longitude }: NamedCoordinate) => `${encodeURIComponent(name)},${latitude},${longitude}`;
+  return `https://map.kakao.com/link/by/car/${point(origin)}/${point(destination)}`;
 }

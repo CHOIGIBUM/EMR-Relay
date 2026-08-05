@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { SQSClient, SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { getHospitalReferences } from "../external/hospitalReferenceService.js";
 import { getConfirmedState } from "../store.js";
@@ -8,17 +7,20 @@ import type { HospitalRequest } from "../types.js";
 import { publishCaseUpdate } from "./appsyncPublisher.js";
 import { nextWaveRadius, selectWaveCandidates, shouldStopExpansion, type MatchCandidate } from "./matchingPolicy.js";
 import {
+  markMatchingAccepted,
+  matchingResponseWindowSeconds,
+  scheduleNextMatchingWave,
+} from "./matchingExpansion.js";
+import {
+  claimMatchJob,
   getHospitalReferenceCache,
   getMatchJob,
   markMatchJob,
   putHospitalReferenceCache,
-  putMatchJob,
+  releaseMatchJobClaim,
   writeMatchingWave,
   type MatchingJobRecord,
 } from "./repository.js";
-
-const MATCHING_QUEUE_URL = process.env.MATCHING_QUEUE_URL || "";
-const sqs = new SQSClient({});
 
 function requestIdFor(job: MatchingJobRecord, hospitalId: string) {
   return `REQ-${createHash("sha256").update(`${job.rootRequestId}|${job.wave}|${hospitalId}`).digest("hex").slice(0, 24)}`;
@@ -30,30 +32,6 @@ async function directoryFor(job: MatchingJobRecord) {
   const directory = await getHospitalReferences(job.latitude, job.longitude);
   await putHospitalReferenceCache(job.latitude, job.longitude, directory);
   return directory;
-}
-
-async function enqueueNextWave(job: MatchingJobRecord) {
-  const radiusKm = nextWaveRadius(job.radiusKm, job.maxRadiusKm);
-  if (radiusKm === null || !MATCHING_QUEUE_URL) return;
-  const wave = job.wave + 1;
-  const existing = await getMatchJob(job.caseId, job.rootRequestId, wave);
-  const now = new Date().toISOString();
-  const nextJob: MatchingJobRecord = existing ?? {
-    ...job,
-    jobId: `${job.rootRequestId}-W${wave}`,
-    status: "QUEUED",
-    wave,
-    radiusKm,
-    createdAt: now,
-    updatedAt: now,
-  };
-  if (!existing) await putMatchJob(nextJob);
-  if (nextJob.status !== "QUEUED") return;
-  await sqs.send(new SendMessageCommand({
-    QueueUrl: MATCHING_QUEUE_URL,
-    DelaySeconds: 45,
-    MessageBody: JSON.stringify(nextJob),
-  }));
 }
 
 async function publishWaveResult(
@@ -125,7 +103,12 @@ async function processJob(message: MatchingJobRecord) {
     latitude: Number(stored.latitude),
     longitude: Number(stored.longitude),
     radiusKm: Number(stored.radiusKm),
+    ...(typeof stored.previousRadiusKm === "number" ? { previousRadiusKm: stored.previousRadiusKm } : {}),
     maxRadiusKm: Number(stored.maxRadiusKm),
+    ...(typeof stored.notBeforeAt === "string" ? { notBeforeAt: stored.notBeforeAt } : {}),
+    ...(typeof stored.expansionReason === "string"
+      ? { expansionReason: stored.expansionReason as NonNullable<MatchingJobRecord["expansionReason"]> }
+      : {}),
     requestedBy: String(stored.requestedBy),
     createdAt: String(stored.createdAt),
     updatedAt: String(stored.updatedAt),
@@ -134,20 +117,32 @@ async function processJob(message: MatchingJobRecord) {
     const [meta, workflow] = await Promise.all([getCaseMeta(job.caseId), getWorkflowCase(job.caseId)]);
     if (!meta || !isMatchingStageEligible(meta.stage)) return;
     const requests = workflow.hospitalRequests.filter((request) => request.broadcastId === `${job.rootRequestId}-W${job.wave}`);
-    await publishWaveResultSafely(job, meta, requests);
-    await enqueueNextWave(job);
+    if (shouldStopExpansion({
+      ...(meta.destinationHospitalId ? { destinationHospitalId: meta.destinationHospitalId } : {}),
+      acceptedRequestCount: workflow.hospitalRequests.filter((request) => request.status === "ACCEPTED").length,
+    })) return;
+    await scheduleNextMatchingWave(job, requests.length ? "RESPONSE_TIMEOUT" : "NO_CANDIDATES", {
+      immediate: requests.length === 0,
+    });
     return;
   }
+  if (stored.status !== "QUEUED") return;
+  if (!await claimMatchJob(job.caseId, job.rootRequestId, job.wave)) return;
   const [meta, workflow, confirmedState] = await Promise.all([
     getCaseMeta(job.caseId),
     getWorkflowCase(job.caseId),
     getConfirmedState(job.caseId),
   ]);
-  if (!meta) return;
+  if (!meta) {
+    await markMatchJob(job.caseId, job.rootRequestId, job.wave, "SKIPPED", { skipReason: "CASE_NOT_FOUND" });
+    return;
+  }
   // A queued message may outlive a demo reset. Never recreate requests for a
   // freshly reset ASSIGNED case (or for any case outside the matching stages).
-  if (!isMatchingStageEligible(meta.stage)) return;
-  await markMatchJob(job.caseId, job.rootRequestId, job.wave, "PROCESSING");
+  if (!isMatchingStageEligible(meta.stage)) {
+    await markMatchJob(job.caseId, job.rootRequestId, job.wave, "SKIPPED", { skipReason: "STAGE_NOT_ELIGIBLE" });
+    return;
+  }
   const acceptedRequestCount = workflow.hospitalRequests.filter((request) => request.status === "ACCEPTED").length;
   if (shouldStopExpansion({
     ...(meta.destinationHospitalId ? { destinationHospitalId: meta.destinationHospitalId } : {}),
@@ -156,6 +151,7 @@ async function processJob(message: MatchingJobRecord) {
     await markMatchJob(job.caseId, job.rootRequestId, job.wave, "SKIPPED", {
       skipReason: meta.destinationHospitalId ? "DESTINATION_CONFIRMED" : "ACCEPTED_CANDIDATE_EXISTS",
     });
+    if (!meta.destinationHospitalId) await markMatchingAccepted(job);
     return;
   }
 
@@ -166,21 +162,26 @@ async function processJob(message: MatchingJobRecord) {
     job.radiusKm,
     excluded,
     3,
+    job.previousRadiusKm ?? 0,
   );
   if (!candidates.length) {
     await markMatchJob(job.caseId, job.rootRequestId, job.wave, "COMPLETED", { candidateCount: 0 });
     await publishWaveResultSafely(job, meta, []);
-    await enqueueNextWave(job);
+    await scheduleNextMatchingWave(job, "NO_CANDIDATES", { immediate: true });
     return;
   }
 
   const occurredAt = new Date().toISOString();
+  const responseExpiresAt = new Date(
+    Date.parse(occurredAt) + matchingResponseWindowSeconds() * 1_000,
+  ).toISOString();
   const requests: Array<HospitalRequest & Record<string, unknown>> = candidates.map((candidate) => ({
     requestId: requestIdFor(job, candidate.hospital_id),
     caseId: job.caseId,
     broadcastId: `${job.rootRequestId}-W${job.wave}`,
     wave: job.wave,
     radiusKm: job.radiusKm,
+    responseExpiresAt,
     hospitalId: candidate.hospital_id,
     hospitalName: candidate.display_name,
     distanceKm: candidate.distance_km,
@@ -197,16 +198,34 @@ async function processJob(message: MatchingJobRecord) {
   }));
   const committed = await writeMatchingWave({ job, meta, confirmedState, requests });
   await publishWaveResultSafely(job, { ...meta, version: committed.version, stage: committed.stage }, requests);
-  await enqueueNextWave(job);
+  await scheduleNextMatchingWave(job, "RESPONSE_TIMEOUT");
 }
 
 export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
   const batchItemFailures: Array<{ itemIdentifier: string }> = [];
   for (const record of event.Records) {
+    let parsed: MatchingJobRecord | undefined;
     try {
-      const parsed = JSON.parse(record.body) as MatchingJobRecord;
+      parsed = JSON.parse(record.body) as MatchingJobRecord;
       await processJob(parsed);
     } catch (error) {
+      if (parsed) {
+        try {
+          await releaseMatchJobClaim(
+            parsed.caseId,
+            parsed.rootRequestId,
+            parsed.wave,
+            error instanceof Error ? error.name : "UnknownError",
+          );
+        } catch (releaseError) {
+          console.error(JSON.stringify({
+            level: "error",
+            code: "MATCHING_CLAIM_RELEASE_FAILED",
+            messageId: record.messageId,
+            errorName: releaseError instanceof Error ? releaseError.name : "UnknownError",
+          }));
+        }
+      }
       console.error(JSON.stringify({
         level: "error",
         messageId: record.messageId,

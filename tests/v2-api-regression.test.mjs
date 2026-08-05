@@ -64,6 +64,35 @@ test("sends the authenticated demo reset through the AppSync mutation contract",
   assert.equal(result.restoredItems, 12);
 });
 
+test("requests an idempotent immediate matching expansion through AppSync", async () => {
+  let requestBody;
+  const api = new GraphQLEmsV2Api({
+    endpoint: ENDPOINT,
+    fetchImpl: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return graphQlResponse({
+        expandHospitalMatching: {
+          jobId: "root-W2",
+          caseId: "GW-STROKE-001",
+          status: "QUEUED",
+          wave: 2,
+          radiusKm: 30,
+          previousRadiusKm: 15,
+          maxRadiusKm: 120,
+          nextExpansionAt: "2026-08-05T04:00:00.000Z",
+          expansionReason: "MANUAL",
+          createdAt: "2026-08-05T03:59:30.000Z",
+        },
+      });
+    },
+  });
+
+  await api.expandMatching("GW-STROKE-001");
+  assert.equal(requestBody.operationName, "expandHospitalMatching");
+  assert.equal(requestBody.variables.input.caseId, "GW-STROKE-001");
+  assert.match(requestBody.variables.input.expansionId, /^[0-9a-f-]{36}$/i);
+});
+
 test("local demo reset preserves non-demo cases and their requests", async () => {
   const previousWindow = globalThis.window;
   const values = new Map();
@@ -177,6 +206,47 @@ test("decodes double-encoded AppSync AWSJSON event and hospital-request arrays",
     respondedAt: requestedAt,
     reason: undefined,
   });
+});
+
+test("decodes authoritative matching state even when the current wave has no hospital rows", async () => {
+  const caseId = "GW-STROKE-002";
+  let requestBody;
+  const matchingState = {
+    caseId,
+    rootRequestId: "MATCH-GW-STROKE-002",
+    currentWave: 2,
+    currentRadiusKm: 30,
+    maxRadiusKm: 120,
+    status: "WAITING_RESPONSES",
+    nextRadiusKm: 60,
+    nextExpansionAt: "2026-08-05T05:30:00.000Z",
+    expansionReason: "ALL_DECLINED",
+    updatedAt: "2026-08-05T05:29:30.000Z",
+  };
+  const api = new GraphQLEmsV2Api({
+    endpoint: ENDPOINT,
+    fetchImpl: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return graphQlResponse({
+        getCase: {
+          caseId,
+          version: 12,
+          stage: "HOSPITAL_REQUESTED",
+          confirmedState: JSON.stringify({ facts: {} }),
+          meta: "{}",
+          events: "[]",
+          hospitalRequests: "[]",
+          matchingState: doubleEncode(matchingState),
+        },
+      });
+    },
+  });
+
+  const incident = await api.getCase(caseId);
+
+  assert.match(requestBody.query, /hospitalRequests matchingState/);
+  assert.deepEqual(incident.matchingState, matchingState);
+  assert.deepEqual(incident.hospitalRequests, []);
 });
 
 test("decodes double-encoded AppSync AWSJSON voice change and flag arrays", async () => {

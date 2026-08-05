@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeEmergencyFacilities, sortHospitalReferences } from "../src/external/hospitalReferenceService.js";
+import { mergeVerifiedGangwonDirectory } from "../src/external/gangwonEmergencyDirectory.js";
+import {
+  mergeEmergencyFacilities,
+  selectNetworkHospitalFacilities,
+  sortHospitalReferences,
+} from "../src/external/hospitalReferenceService.js";
 import type { ReferenceFacility } from "../src/external/nmc.js";
 
 const nmc: ReferenceFacility = {
@@ -23,6 +28,53 @@ test("uses NMC emergency institutions as the candidate allowlist", () => {
   }]);
 
   assert.deepEqual(result, [nmc]);
+});
+
+test("keeps a verified cross-municipality baseline while live NMC values take precedence", () => {
+  const result = mergeVerifiedGangwonDirectory([{
+    id: "A2200012",
+    name: "속초의료원 실시간 명칭",
+    address: "실시간 주소",
+    latitude: 38.2,
+    longitude: 128.5,
+    capabilities: ["실시간 NMC 정보"],
+    sources: ["NMC"],
+  }]);
+
+  assert.equal(result.length, 9);
+  assert.equal(result.find(({ id }) => id === "A2200012")?.name, "속초의료원 실시간 명칭");
+  assert.equal(result.some(({ id }) => id === "A2200011"), true);
+  assert.equal(result.some(({ id }) => id === "A2200003"), true);
+});
+
+test("keeps all nine allowlisted hospitals and excludes non-network candidates", () => {
+  const allowedIds = new Set(Array.from({ length: 9 }, (_, index) => `H${index + 1}`));
+  const facilities: ReferenceFacility[] = [
+    ...[...allowedIds].map((id, index) => ({
+      id,
+      name: id,
+      latitude: 38 + index / 100,
+      longitude: 128,
+      capabilities: [],
+      sources: ["NMC" as const],
+    })),
+    {
+      id: "OUTSIDE-NETWORK",
+      name: "Outside",
+      latitude: 38,
+      longitude: 128,
+      capabilities: [],
+      sources: ["NMC"],
+    },
+  ];
+
+  const selected = selectNetworkHospitalFacilities(
+    facilities,
+    { latitude: 38, longitude: 128 },
+    allowedIds,
+  );
+  assert.equal(selected.length, 9);
+  assert.deepEqual(new Set(selected.map(({ id }) => id)), allowedIds);
 });
 
 test("enriches a matching NMC institution without replacing its identity or care level", () => {

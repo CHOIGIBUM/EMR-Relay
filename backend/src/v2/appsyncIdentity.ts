@@ -1,4 +1,5 @@
 import { AuthenticationError, AuthorizationError } from "../auth.js";
+import { resolveHospitalForPrincipal } from "../hospitalScope.js";
 import type { AuthPrincipal, PrincipalRole } from "../types.js";
 
 export type AppSyncIdentity = Record<string, unknown> | null | undefined;
@@ -15,7 +16,11 @@ function parseGroups(value: unknown): PrincipalRole[] {
     }
   }
   const allowed = new Set<string>(["paramedic", "hospital"]);
-  return [...new Set(candidates.map((entry) => String(entry).trim()).filter((entry): entry is PrincipalRole => allowed.has(entry)))];
+  return [...new Set(
+    candidates
+      .map((entry) => String(entry).trim())
+      .filter((entry): entry is PrincipalRole => allowed.has(entry)),
+  )];
 }
 
 export function isIamIdentity(identity: AppSyncIdentity) {
@@ -44,21 +49,21 @@ export function principalFromAppSyncIdentity(identity: AppSyncIdentity): AuthPri
   return { sub, roles, ...(username ? { username } : {}), ...(hospitalId ? { hospitalId } : {}) };
 }
 
-export function resolveHospitalScope(principal: AuthPrincipal, requestedHospitalId?: string) {
-  if (!principal.roles.includes("hospital") || !principal.hospitalId) {
-    throw new AuthorizationError("병원 수용 담당자의 기관 정보가 필요합니다.");
-  }
-  if (requestedHospitalId && requestedHospitalId !== principal.hospitalId) {
-    throw new AuthorizationError("다른 병원의 요청함은 조회할 수 없습니다.");
-  }
-  return principal.hospitalId;
+export function resolveHospitalScope(principal: AuthPrincipal, requestedHospitalId?: string): string {
+  return resolveHospitalForPrincipal(principal, requestedHospitalId);
 }
 
 export function parseAwsJson(value: unknown, label = "AWSJSON") {
   if (value && typeof value === "object" && !Array.isArray(value)) return value as Record<string, unknown>;
   if (typeof value !== "string") throw new Error(`${label}은 JSON 객체여야 합니다.`);
   let parsed: unknown;
-  try { parsed = JSON.parse(value); } catch { throw new Error(`${label}을 JSON으로 해석할 수 없습니다.`); }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error(`${label}은 JSON 객체여야 합니다.`);
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error(`${label}을 JSON으로 해석할 수 없습니다.`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`${label}은 JSON 객체여야 합니다.`);
+  }
   return parsed as Record<string, unknown>;
 }

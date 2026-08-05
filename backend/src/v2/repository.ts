@@ -24,6 +24,8 @@ const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 export const casePk = (caseId: string) => `CASE#${caseId}`;
 export const matchJobSk = (requestId: string, wave: number) => `MATCH_JOB#${requestId}#W${wave}`;
+const MATCHING_STATE_SK = "MATCHING_STATE";
+const matchingExpansionSk = (expansionId: string) => `MATCH_EXPANSION#${expansionId}`;
 const requestSk = (requestId: string) => `HOSPITAL_REQUEST#${requestId}`;
 const eventSk = (occurredAt: string, eventId: string) => `EVENT#${occurredAt}#${eventId}`;
 
@@ -36,11 +38,36 @@ export type MatchingJobRecord = {
   latitude: number;
   longitude: number;
   radiusKm: number;
+  previousRadiusKm?: number;
   maxRadiusKm: number;
+  notBeforeAt?: string;
+  expansionReason?: MatchingExpansionReason;
   requestedBy: string;
   createdAt: string;
   updatedAt: string;
   errorCode?: string;
+};
+
+export type MatchingExpansionReason =
+  | "INITIAL_REQUEST"
+  | "ALL_DECLINED"
+  | "RESPONSE_TIMEOUT"
+  | "MANUAL_REQUEST"
+  | "NO_CANDIDATES"
+  | "MAX_RADIUS_REACHED"
+  | "ACCEPTED";
+
+export type MatchingStateRecord = {
+  caseId: string;
+  rootRequestId: string;
+  currentWave: number;
+  currentRadiusKm: number;
+  maxRadiusKm: number;
+  status: "QUEUED" | "WAITING_RESPONSES" | "EXPANSION_QUEUED" | "ACCEPTED" | "EXHAUSTED";
+  nextRadiusKm?: number;
+  nextExpansionAt?: string;
+  expansionReason: MatchingExpansionReason;
+  updatedAt: string;
 };
 
 export type HospitalReferenceDirectory = Awaited<ReturnType<typeof import("../external/hospitalReferenceService.js").getHospitalReferences>>;
@@ -210,6 +237,193 @@ export async function putMatchJob(job: MatchingJobRecord) {
     },
     ConditionExpression: "attribute_not_exists(PK)",
   }));
+}
+
+export async function putMatchJobIfAbsent(job: MatchingJobRecord) {
+  try {
+    await putMatchJob(job);
+    return { job, created: true } as const;
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== "ConditionalCheckFailedException") throw error;
+    const existing = await getMatchJob(job.caseId, job.rootRequestId, job.wave);
+    if (!existing) throw error;
+    return { job: existing as MatchingJobRecord, created: false } as const;
+  }
+}
+
+export async function requeueFailedMatchJob(
+  caseId: string,
+  requestId: string,
+  wave: number,
+  radiusKm: number,
+  maxRadiusKm: number,
+) {
+  try {
+    const result = await client.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { PK: casePk(caseId), SK: matchJobSk(requestId, wave) },
+      UpdateExpression: "SET #status = :queued, radiusKm = :radiusKm, maxRadiusKm = :maxRadiusKm, updatedAt = :updatedAt, retryCount = if_not_exists(retryCount, :zero) + :one REMOVE errorCode, immediateEnqueueToken, delayedEnqueueToken",
+      ConditionExpression: "#status = :failed",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":failed": "FAILED",
+        ":queued": "QUEUED",
+        ":radiusKm": radiusKm,
+        ":maxRadiusKm": maxRadiusKm,
+        ":updatedAt": new Date().toISOString(),
+        ":zero": 0,
+        ":one": 1,
+      },
+      ReturnValues: "ALL_NEW",
+    }));
+    return result.Attributes as (MatchingJobRecord & Record<string, unknown>) | undefined;
+  } catch (error) {
+    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return undefined;
+    throw error;
+  }
+}
+
+export async function claimMatchJob(caseId: string, requestId: string, wave: number) {
+  try {
+    await client.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { PK: casePk(caseId), SK: matchJobSk(requestId, wave) },
+      UpdateExpression: "SET #status = :processing, updatedAt = :updatedAt",
+      ConditionExpression: "#status = :queued",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":queued": "QUEUED",
+        ":processing": "PROCESSING",
+        ":updatedAt": new Date().toISOString(),
+      },
+    }));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return false;
+    throw error;
+  }
+}
+
+export async function releaseMatchJobClaim(caseId: string, requestId: string, wave: number, errorCode: string) {
+  try {
+    await client.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { PK: casePk(caseId), SK: matchJobSk(requestId, wave) },
+      UpdateExpression: "SET #status = :queued, updatedAt = :updatedAt, errorCode = :errorCode",
+      ConditionExpression: "#status = :processing",
+      ExpressionAttributeNames: { "#status": "status" },
+      ExpressionAttributeValues: {
+        ":processing": "PROCESSING",
+        ":queued": "QUEUED",
+        ":updatedAt": new Date().toISOString(),
+        ":errorCode": errorCode,
+      },
+    }));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return false;
+    throw error;
+  }
+}
+
+export async function reserveMatchJobEnqueue(
+  job: MatchingJobRecord,
+  channel: "DELAYED" | "IMMEDIATE",
+) {
+  const marker = channel === "DELAYED" ? "delayedEnqueueToken" : "immediateEnqueueToken";
+  const token = randomUUID();
+  try {
+    await client.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { PK: casePk(job.caseId), SK: matchJobSk(job.rootRequestId, job.wave) },
+      UpdateExpression: "SET #marker = :token, updatedAt = :updatedAt",
+      ConditionExpression: "#status = :queued AND attribute_not_exists(#marker)",
+      ExpressionAttributeNames: { "#status": "status", "#marker": marker },
+      ExpressionAttributeValues: {
+        ":queued": "QUEUED",
+        ":token": token,
+        ":updatedAt": new Date().toISOString(),
+      },
+    }));
+    return token;
+  } catch (error) {
+    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return undefined;
+    throw error;
+  }
+}
+
+export async function releaseMatchJobEnqueue(
+  job: MatchingJobRecord,
+  channel: "DELAYED" | "IMMEDIATE",
+  token: string,
+) {
+  const marker = channel === "DELAYED" ? "delayedEnqueueToken" : "immediateEnqueueToken";
+  try {
+    await client.send(new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: { PK: casePk(job.caseId), SK: matchJobSk(job.rootRequestId, job.wave) },
+      UpdateExpression: "SET updatedAt = :updatedAt REMOVE #marker",
+      ConditionExpression: "#marker = :token",
+      ExpressionAttributeNames: { "#marker": marker },
+      ExpressionAttributeValues: { ":token": token, ":updatedAt": new Date().toISOString() },
+    }));
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== "ConditionalCheckFailedException") throw error;
+  }
+}
+
+export async function getMatchingState(caseId: string) {
+  const result = await client.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: { PK: casePk(caseId), SK: MATCHING_STATE_SK },
+    ConsistentRead: true,
+  }));
+  return result.Item as (MatchingStateRecord & Record<string, unknown>) | undefined;
+}
+
+export async function putMatchingState(state: MatchingStateRecord) {
+  await client.send(new PutCommand({
+    TableName: TABLE_NAME,
+    Item: {
+      PK: casePk(state.caseId),
+      SK: MATCHING_STATE_SK,
+      entityType: "MATCHING_STATE",
+      ...state,
+    },
+  }));
+}
+
+export async function getMatchingExpansion(caseId: string, expansionId: string) {
+  const result = await client.send(new GetCommand({
+    TableName: TABLE_NAME,
+    Key: { PK: casePk(caseId), SK: matchingExpansionSk(expansionId) },
+    ConsistentRead: true,
+  }));
+  return result.Item as { rootRequestId: string; wave: number } | undefined;
+}
+
+export async function putMatchingExpansion(caseId: string, expansionId: string, rootRequestId: string, wave: number) {
+  try {
+    await client.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        PK: casePk(caseId),
+        SK: matchingExpansionSk(expansionId),
+        entityType: "MATCHING_EXPANSION",
+        caseId,
+        expansionId,
+        rootRequestId,
+        wave,
+        createdAt: new Date().toISOString(),
+        expiresAt: Math.floor(Date.now() / 1_000) + 86_400,
+      },
+      ConditionExpression: "attribute_not_exists(PK)",
+    }));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return false;
+    throw error;
+  }
 }
 
 export async function markMatchJob(

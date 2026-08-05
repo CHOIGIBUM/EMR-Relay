@@ -16,6 +16,14 @@ Parameters:
   BedrockModelId:
     Type: String
     Default: global.anthropic.claude-haiku-4-5-20251001-v1:0
+  MatchingResponseWindowSeconds:
+    Type: Number
+    Default: 30
+    MinValue: 30
+    MaxValue: 900
+  HospitalNetworkAllowedIds:
+    Type: String
+    Default: A2200012,A2200046,A2200010,A2200011,A2200005,A2200008,A2200038,A2200003,A2200007
 
 Globals:
   Function:
@@ -27,6 +35,8 @@ Globals:
       Variables:
         TABLE_NAME: !Ref CaseTable
         MATCHING_QUEUE_URL: !Ref MatchingQueue
+        MATCHING_RESPONSE_WINDOW_SECONDS: !Ref MatchingResponseWindowSeconds
+        HOSPITAL_NETWORK_ALLOWED_IDS: !Ref HospitalNetworkAllowedIds
         EXTERNAL_API_SECRET_NAME: !Ref ExternalApiSecretName
         NODE_OPTIONS: --enable-source-maps
 
@@ -243,6 +253,9 @@ Resources:
             Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
             Pipeline: [InvokeAppSyncLambda]
           requestHospitalMatching:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
+          expandHospitalMatching:
             Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
             Pipeline: [InvokeAppSyncLambda]
           resetDemoCases:

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -18,11 +18,19 @@ import {
   RefreshCw,
   Route,
   Search,
+  ScanSearch,
   UserRound,
   X,
 } from "lucide-react";
 import KakaoRouteMap from "./KakaoRouteMap";
-import { DEMO_RESET_CONFIRMATION, type DispatchCase, type PatientAssessment, type StrokeSide, type SpeechFinding, type VoiceUpdateFocus } from "@/lib/v2/types";
+import {
+  DEMO_RESET_CONFIRMATION,
+  type DispatchCase,
+  type PatientAssessment,
+  type StrokeSide,
+  type SpeechFinding,
+  type VoiceUpdateFocus,
+} from "@/lib/v2/types";
 import { applyVoiceChangesToAssessment } from "@/lib/v2/voiceProposal";
 import { getDispatchRoute } from "@/lib/v2/dispatchRoutes";
 import Brand from "./Brand";
@@ -52,6 +60,13 @@ const choiceText = {
   right: "우측",
   unassessable: "평가 불가",
 } as const;
+
+const MAX_MATCH_RADIUS_KM = 120;
+
+function nextMatchRadius(radiusKm: number) {
+  if (radiusKm >= MAX_MATCH_RADIUS_KM) return undefined;
+  return Math.min(MAX_MATCH_RADIUS_KM, Math.max(radiusKm + 10, radiusKm * 2));
+}
 
 const assessmentStepFields: ReadonlyArray<ReadonlyArray<keyof PatientAssessment>> = [
   ["age", "sex", "airway", "breathing", "circulation", "avpu", "chiefComplaint"],
@@ -106,12 +121,73 @@ export default function ParamedicApp() {
   const [draft, setDraft] = useState<PatientAssessment>({});
   const [validation, setValidation] = useState<string | null>(null);
   const [matchingRequestedId, setMatchingRequestedId] = useState<string | null>(null);
+  const [rangeNotice, setRangeNotice] = useState<string | null>(null);
+  const [acceptanceAlert, setAcceptanceAlert] = useState<string | null>(null);
+  const acceptedTrackingReadyRef = useRef(false);
+  const acceptedRequestIdsRef = useRef(new Set<string>());
+  const alertTimerRef = useRef<number | null>(null);
   const incident = store?.cases.find((item) => item.id === selectedId) ?? null;
   const requests = useMemo(() => store?.requests.filter((item) => item.caseId === selectedId) ?? [], [selectedId, store?.requests]);
-  const accepted = requests.filter((request) => request.status === "ACCEPTED");
+  const accepted = useMemo(() => requests.filter((request) => request.status === "ACCEPTED"), [requests]);
+  const matchingState = incident?.matchingState ?? null;
+  const explicitRadii = requests.flatMap((request) => request.radiusKm === undefined ? [] : [request.radiusKm]);
+  const requestRadius = explicitRadii.length
+    ? Math.max(...explicitRadii)
+    : Math.max(15, ...requests.map((request) => Math.ceil(request.distanceKm / 5) * 5));
+  const currentMatchRadius = matchingState?.currentRadiusKm ?? requestRadius;
+  const nextRadius = accepted.length
+    ? undefined
+    : matchingState
+      ? matchingState.nextRadiusKm
+      : nextMatchRadius(currentMatchRadius);
+  const expansionQueued = matchingState?.status === "QUEUED" || matchingState?.status === "EXPANSION_QUEUED";
+  const matchMarkers = useMemo(() => requests.flatMap((request) => {
+    const hospital = store?.hospitals.find((item) => item.id === request.hospitalId);
+    const location = hospital?.location ?? request.hospitalLocation;
+    const name = hospital?.name ?? request.hospitalName;
+    return location && name ? [{ id: request.id, name, location, status: request.status }] : [];
+  }), [requests, store?.hospitals]);
   const destinationRequest = requests.find((request) => request.id === incident?.destinationRequestId) ?? null;
   const destinationHospital = store?.hospitals.find((hospital) => hospital.id === destinationRequest?.hospitalId) ?? null;
   const destinationName = destinationHospital?.name ?? destinationRequest?.hospitalName ?? destinationRequest?.hospitalId ?? "선택 병원";
+  const destinationLocation = destinationHospital?.location ?? destinationRequest?.hospitalLocation;
+  const destinationAddress = destinationHospital?.address ?? destinationRequest?.hospitalAddress;
+
+  const allAccepted = useMemo(
+    () => store?.requests.filter((request) => request.status === "ACCEPTED") ?? [],
+    [store?.requests],
+  );
+  const allAcceptedIdsKey = allAccepted.map((request) => request.id).sort().join("|");
+  useEffect(() => {
+    if (!store) return;
+    const currentIds = new Set(allAcceptedIdsKey.split("|").filter(Boolean));
+    if (!acceptedTrackingReadyRef.current) {
+      acceptedTrackingReadyRef.current = true;
+      acceptedRequestIdsRef.current = currentIds;
+      return;
+    }
+    const newlyAccepted = allAccepted.filter((request) => !acceptedRequestIdsRef.current.has(request.id));
+    acceptedRequestIdsRef.current = currentIds;
+    if (!newlyAccepted.length) return;
+    const message = newlyAccepted.map((request) => {
+      const caseCode = store.cases.find((incident) => incident.id === request.caseId)?.code ?? request.caseId;
+      return `${caseCode} · ${request.hospitalName ?? request.hospitalId}`;
+    }).join(" / ");
+    setAcceptanceAlert(message);
+    setRangeNotice(null);
+    if (alertTimerRef.current) window.clearTimeout(alertTimerRef.current);
+    alertTimerRef.current = window.setTimeout(() => setAcceptanceAlert(null), 6_000);
+    if ("Notification" in window && Notification.permission === "granted") {
+      try {
+        new Notification("EMS Relay 병원 수용 회신", { body: message, tag: `ems-relay-${newlyAccepted.map((request) => request.id).join("-")}` });
+      } catch { /* The in-app toast remains the primary notification. */ }
+    }
+    if ("vibrate" in navigator) navigator.vibrate([180, 90, 180]);
+  }, [allAccepted, allAcceptedIdsKey, store]);
+
+  useEffect(() => () => {
+    if (alertTimerRef.current) window.clearTimeout(alertTimerRef.current);
+  }, []);
 
   const goHome = () => {
     setSelectedId(null);
@@ -120,6 +196,8 @@ export default function ParamedicApp() {
     setAssessmentMaxStep(0);
     setValidation(null);
     setMatchingRequestedId(null);
+    setRangeNotice(null);
+    setAcceptanceAlert(null);
   };
 
   const openCase = (item: DispatchCase) => {
@@ -162,12 +240,23 @@ export default function ParamedicApp() {
 
   const beginMatching = async () => {
     if (!incident) return;
+    if ("Notification" in window && Notification.permission === "default") {
+      void Notification.requestPermission().catch(() => undefined);
+    }
     setMatchingRequestedId(incident.id);
     try {
       await run(() => api.startMatching(incident.id));
     } catch {
       setMatchingRequestedId((current) => current === incident.id ? null : current);
     }
+  };
+
+  const requestRangeExpansion = async () => {
+    if (!incident || accepted.length || !nextRadius) return;
+    try {
+      await run(() => api.expandMatching(incident.id));
+      setRangeNotice(`요청 범위를 확대했습니다. 최대 ${nextRadius}km 후보를 확인합니다.`);
+    } catch { /* V2Provider renders the message. */ }
   };
 
   const validateStep = (step = assessmentStep) => {
@@ -365,23 +454,31 @@ export default function ParamedicApp() {
           <HospitalMatchMap
             scene={incident.scene}
             sceneAddress={incident.sceneAddress}
-            markers={requests.flatMap((request) => {
-              const hospital = store.hospitals.find((item) => item.id === request.hospitalId);
-              return hospital ? [{ id: request.id, name: hospital.name, location: hospital.location, status: request.status }] : [];
-            })}
+            radiusKm={currentMatchRadius}
+            nextRadiusKm={nextRadius}
+            nextExpansionAt={matchingState?.nextExpansionAt}
+            expansionReason={matchingState?.expansionReason}
+            matchingStatus={matchingState?.status}
+            expanding={!accepted.length && Boolean(nextRadius)}
+            markers={matchMarkers}
           />
+          {rangeNotice ? <p className={styles.rangeActionNotice} role="status">{rangeNotice}</p> : null}
           {accepted.length ? <section className={styles.matchNotice}><CheckCircle2 /><div><small>수용 가능 회신 {accepted.length}곳</small><strong>최종 이송병원을 선택하세요</strong></div></section> : null}
           <div className={styles.responseList}>
             {!requests.length ? <div className={styles.emptyInbox}><RadioTower /><strong>근거리 병원을 조회하고 있습니다</strong><span>요청 대상이 확인되는 즉시 이 화면에 표시됩니다.</span></div> : null}
             {requests.map((request) => {
               const hospital = store.hospitals.find((item) => item.id === request.hospitalId);
               return <article key={request.id} data-status={request.status}>
-                <div><span>{request.etaMinutes}분 · {request.distanceKm.toFixed(1)}km</span><h3>{hospital?.name ?? request.hospitalName ?? request.hospitalId}</h3>{hospital?.address ? <p><MapPin /> {hospital.address}</p> : null}</div>
+                <div><span>{request.etaMinutes}분 · {request.distanceKm.toFixed(1)}km</span><h3>{hospital?.name ?? request.hospitalName ?? request.hospitalId}</h3>{hospital?.address || request.hospitalAddress ? <p><MapPin /> {hospital?.address ?? request.hospitalAddress}</p> : null}</div>
                 <b>{request.status === "ACCEPTED" ? <><CheckCircle2 /> 수용 가능</> : request.status === "DECLINED" ? <><X /> 수용 곤란</> : request.status === "VIEWED" ? <><CircleDot /> 열람</> : <><Clock3 /> 요청 중</>}</b>
                 {request.status === "ACCEPTED" ? <button disabled={pending} onClick={() => void doRun(() => api.selectDestination(incident.id, request.id))}>이 병원 선택 <ChevronRight /></button> : null}
               </article>;
             })}
           </div>
+        </div>
+        <div className={`${styles.stickyAction} ${styles.matchingActions}`}>
+          <button type="button" disabled={pending || expansionQueued || Boolean(accepted.length) || !nextRadius} onClick={() => void requestRangeExpansion()}><ScanSearch /> 요청 범위 확대</button>
+          <button type="button" disabled={pending} onClick={() => void refresh()}><RefreshCw /> 병원 요청 갱신</button>
         </div>
       </div>
     );
@@ -394,8 +491,8 @@ export default function ParamedicApp() {
         {pageBar(incident.stage === "transporting" ? "병원 이동" : "이송지 확인", () => incident.stage === "destination-selected" ? undefined : goHome())}
         <div className={styles.mobileScroll}>
           <section className={styles.selectedBanner}><CheckCircle2 /><div><small>수용 병원 연결</small><h2>{destinationName}</h2></div></section>
-          {destinationHospital ? <div className={styles.routeMap}><KakaoRouteMap origin={incident.scene} destination={destinationHospital.location} originName="환자 현장" destinationName={destinationHospital.name} /></div> : null}
-          <section className={styles.routeSummary}><span><Route /><small>예상 이동</small><strong>{destinationRequest.etaMinutes}분</strong></span><span><Navigation /><small>도로 거리</small><strong>{destinationRequest.distanceKm.toFixed(1)}km</strong></span>{destinationHospital?.address ? <p><MapPin /> {destinationHospital.address}</p> : null}</section>
+          {destinationLocation ? <div className={styles.routeMap}><KakaoRouteMap origin={incident.scene} destination={destinationLocation} originName="환자 현장" destinationName={destinationName} /></div> : null}
+          <section className={styles.routeSummary}><span><Route /><small>예상 이동</small><strong>{destinationRequest.etaMinutes}분</strong></span><span><Navigation /><small>도로 거리</small><strong>{destinationRequest.distanceKm.toFixed(1)}km</strong></span>{destinationAddress ? <p><MapPin /> {destinationAddress}</p> : null}</section>
         </div>
         <div className={styles.stickyAction}>
           {incident.stage === "destination-selected" ? <button disabled={pending} onClick={() => void doRun(() => api.startTransport(incident.id))}><Navigation /> 병원으로 출발</button> : null}
@@ -426,6 +523,7 @@ export default function ParamedicApp() {
       <div className={styles.mobileApp}>
         <Brand mobile subtitle={incident?.code ?? "구급대원"} onHome={goHome} onDemoReset={() => void resetDemo()} resetPending={pending} />
         {error ? <div className={styles.globalError} role="alert"><AlertTriangle /> {error}</div> : null}
+        {acceptanceAlert ? <div className={styles.acceptanceToast} role="status" aria-live="assertive"><CheckCircle2 /><span><strong>수용 가능 회신</strong>{acceptanceAlert}</span></div> : null}
         {content}
       </div>
     </main>

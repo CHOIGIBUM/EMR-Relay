@@ -9,6 +9,9 @@ import {
   type Avpu,
   type DemoResetResult,
   type DispatchCase,
+  type CaseMatchingState,
+  type MatchingExpansionReason,
+  type MatchingStateStatus,
   type Hospital,
   type HospitalDecision,
   type HospitalInboxItem,
@@ -48,6 +51,7 @@ export interface EmsV2Api {
   saveAssessment(caseId: string, assessment: PatientAssessment): Promise<DispatchCase>;
   confirmPatientCard(caseId: string): Promise<DispatchCase>;
   startMatching(caseId: string): Promise<void>;
+  expandMatching(caseId: string): Promise<void>;
   markRequestViewed(caseId: string, requestId: string, hospitalId: string): Promise<HospitalRequest>;
   respondToRequest(caseId: string, requestId: string, hospitalId: string, decision: HospitalDecision, reason?: string): Promise<HospitalRequest>;
   selectDestination(caseId: string, requestId: string): Promise<DispatchCase>;
@@ -192,6 +196,11 @@ export class LocalEmsV2Api implements EmsV2Api {
 
   async startMatching(caseId: string) { this.createWave(caseId, 1); }
 
+  async expandMatching(caseId: string) {
+    const wave = Math.max(0, ...this.read().requests.filter((request) => request.caseId === caseId).map((request) => request.wave)) + 1;
+    this.createWave(caseId, wave);
+  }
+
   async markRequestViewed(caseId: string, requestId: string, hospitalId: string) {
     return this.mutate((store) => {
       const request = this.ensureRequest(store, caseId, requestId, hospitalId);
@@ -317,12 +326,14 @@ export class LocalEmsV2Api implements EmsV2Api {
       const routes = store.routes.filter((route) => route.caseId === caseId && route.wave === wave && !requestedHospitalIds.has(route.hospitalId));
       if (!routes.length) throw new Error("추가 요청 가능한 병원이 없습니다.");
       const requestedAt = now();
+      const radiusKm = Math.max(15, Math.ceil(Math.max(...routes.map((route) => route.distanceKm)) / 5) * 5);
       const requests: HospitalRequest[] = routes.map((route) => ({
         id: `REQ-${caseId}-${route.hospitalId}-${crypto.randomUUID()}`,
         caseId,
         hospitalId: route.hospitalId,
         hospitalName: store.hospitals.find((hospital) => hospital.id === route.hospitalId)?.name,
         wave,
+        radiusKm,
         status: "REQUESTED",
         distanceKm: route.distanceKm,
         etaMinutes: route.etaMinutes,
@@ -393,6 +404,7 @@ type RawCaseSnapshot = {
   meta: unknown;
   events: unknown;
   hospitalRequests: unknown;
+  matchingState?: unknown;
 };
 
 type RawHospitalInboxItem = {
@@ -416,7 +428,10 @@ type MatchingJob = {
   status: string;
   wave: number;
   radiusKm: number;
+  previousRadiusKm?: number;
   maxRadiusKm: number;
+  nextExpansionAt?: string;
+  expansionReason?: string;
   createdAt: string;
 };
 
@@ -432,10 +447,10 @@ const CASE_SUMMARY_FIELDS = `
   reporter station sceneAddress sceneLatitude sceneLongitude agency unitId vehicleNumber
   destinationHospitalId updatedAt
 `;
-const CASE_SNAPSHOT_FIELDS = "caseId version stage confirmedState meta events hospitalRequests";
+const CASE_SNAPSHOT_FIELDS = "caseId version stage confirmedState meta events hospitalRequests matchingState";
 const INBOX_FIELDS = "requestId caseId hospitalId hospitalName status wave radiusKm distanceKm etaMinutes patientCard createdAt updatedAt";
 const CASE_UPDATE_FIELDS = "caseId version eventId eventType stage occurredAt requestId hospitalId requestStatus payload";
-const MATCHING_JOB_FIELDS = "jobId caseId status wave radiusKm maxRadiusKm createdAt";
+const MATCHING_JOB_FIELDS = "jobId caseId status wave radiusKm previousRadiusKm maxRadiusKm nextExpansionAt expansionReason createdAt";
 
 function parseJson<T>(value: unknown, fallback: T): T {
   // AppSync AWSJSON can arrive as either a JSON value, a JSON string, or a
@@ -454,6 +469,59 @@ function record(value: unknown): Record<string, unknown> {
 
 function optionalString(value: unknown) { return typeof value === "string" && value.length ? value : undefined; }
 function optionalNumber(value: unknown) { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
+
+const matchingStatuses = new Set<MatchingStateStatus>([
+  "QUEUED",
+  "WAITING_RESPONSES",
+  "EXPANSION_QUEUED",
+  "ACCEPTED",
+  "EXHAUSTED",
+]);
+const matchingReasons = new Set<MatchingExpansionReason>([
+  "INITIAL_REQUEST",
+  "ALL_DECLINED",
+  "RESPONSE_TIMEOUT",
+  "MANUAL_REQUEST",
+  "NO_CANDIDATES",
+  "MAX_RADIUS_REACHED",
+  "ACCEPTED",
+]);
+
+function matchingStateFromRaw(value: unknown): CaseMatchingState | null {
+  const state = parseJson<Record<string, unknown>>(value, {});
+  const caseId = optionalString(state.caseId);
+  const rootRequestId = optionalString(state.rootRequestId);
+  const currentWave = optionalNumber(state.currentWave);
+  const currentRadiusKm = optionalNumber(state.currentRadiusKm);
+  const maxRadiusKm = optionalNumber(state.maxRadiusKm);
+  const status = optionalString(state.status);
+  const expansionReason = optionalString(state.expansionReason);
+  const updatedAt = optionalString(state.updatedAt);
+  if (
+    !caseId
+    || !rootRequestId
+    || currentWave === undefined
+    || currentRadiusKm === undefined
+    || maxRadiusKm === undefined
+    || !status
+    || !matchingStatuses.has(status as MatchingStateStatus)
+    || !expansionReason
+    || !matchingReasons.has(expansionReason as MatchingExpansionReason)
+    || !updatedAt
+  ) return null;
+  return {
+    caseId,
+    rootRequestId,
+    currentWave,
+    currentRadiusKm,
+    maxRadiusKm,
+    status: status as MatchingStateStatus,
+    nextRadiusKm: optionalNumber(state.nextRadiusKm),
+    nextExpansionAt: optionalString(state.nextExpansionAt),
+    expansionReason: expansionReason as MatchingExpansionReason,
+    updatedAt,
+  };
+}
 
 function factEntry(facts: Record<string, unknown>, path: string) {
   const item = facts[path];
@@ -629,6 +697,7 @@ function incidentFromSnapshot(snapshot: RawCaseSnapshot, summary?: RawCaseSummar
   const parsedRequests = parseJson<unknown>(snapshot.hospitalRequests, []);
   const rawRequests = Array.isArray(parsedRequests) ? parsedRequests : [];
   const hospitalRequests = rawRequests.map(hospitalRequestFromRaw).filter((item): item is HospitalRequest => item !== null);
+  const matchingState = matchingStateFromRaw(snapshot.matchingState);
   const parsedEvents = parseJson<unknown>(snapshot.events, []);
   const events = Array.isArray(parsedEvents) ? parsedEvents : [];
   const selectedRequest = rawRequests.map((item) => record(item)).find((item) => item.selectionStatus === "SELECTED");
@@ -664,6 +733,7 @@ function incidentFromSnapshot(snapshot: RawCaseSnapshot, summary?: RawCaseSummar
     timeline: timelineFromEvents(events),
     version: snapshot.version,
     hospitalRequests,
+    matchingState,
   };
 }
 
@@ -1006,6 +1076,14 @@ export class GraphQLEmsV2Api implements EmsV2Api {
       `mutation requestHospitalMatching($input: HospitalMatchingInput!) { requestHospitalMatching(input: $input) { ${MATCHING_JOB_FIELDS} } }`,
       { input: { caseId, requestId, latitude: incident.scene.latitude, longitude: incident.scene.longitude, radiusKm: 15, maxRadiusKm: 120 } },
       "requestHospitalMatching",
+    );
+  }
+
+  async expandMatching(caseId: string) {
+    await this.request<MatchingJob>(
+      `mutation expandHospitalMatching($input: HospitalMatchingExpansionInput!) { expandHospitalMatching(input: $input) { ${MATCHING_JOB_FIELDS} } }`,
+      { input: { caseId, expansionId: crypto.randomUUID() } },
+      "expandHospitalMatching",
     );
   }
 

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DISPATCH_ROUTES } from "../lib/v2/dispatchRoutes.ts";
+import { buildKakaoDirectionsLink } from "../lib/v2/map.ts";
 
 const read = (relativePath) => readFileSync(fileURLToPath(new URL(`../${relativePath}`, import.meta.url)), "utf8");
 
@@ -68,4 +69,44 @@ test("places compact demo reset before logout without changing hospital callers"
   const paramedic = read("components/v2/ParamedicApp.tsx");
   assert.match(paramedic, /window\.confirm\("출동 사건 3건을 처음 상태로 되돌릴까요\?/);
   assert.match(paramedic, /await resetDemoCases\(DEMO_RESET_CONFIRMATION\)/);
+});
+
+test("opens Kakao car directions with the configured origin and destination", () => {
+  const url = buildKakaoDirectionsLink(
+    { name: "영랑119안전센터", latitude: 38.2154, longitude: 128.5903 },
+    { name: "환자 현장", latitude: 38.2072, longitude: 128.5918 },
+  );
+  assert.equal(url, "https://map.kakao.com/link/by/car/%EC%98%81%EB%9E%91119%EC%95%88%EC%A0%84%EC%84%BC%ED%84%B0,38.2154,128.5903/%ED%99%98%EC%9E%90%20%ED%98%84%EC%9E%A5,38.2072,128.5918");
+  assert.doesNotMatch(url, /\/link\/to\//);
+});
+
+test("renders labeled route endpoints, range circles, expansion controls, and acceptance alerts", () => {
+  const routeSource = read("components/v2/KakaoRouteMap.tsx");
+  const matchMapSource = read("components/v2/HospitalMatchMap.tsx");
+  const paramedicSource = read("components/v2/ParamedicApp.tsx");
+  assert.match(routeSource, /routeLabelOrigin/);
+  assert.match(routeSource, /routeLabelDestination/);
+  assert.match(routeSource, /new maps\.Polyline/);
+  assert.match(matchMapSource, /new maps\.Circle/);
+  assert.match(matchMapSource, /현재 요청 반경 \{radiusKm\}km/);
+  assert.match(matchMapSource, /radiusKm === 0 \? " · 실행 전"/);
+  assert.match(matchMapSource, /최초 요청 \$\{nextRadiusKm\}km 실행 대기/);
+  assert.match(matchMapSource, /수동 확대 · 다음 \$\{nextRadiusKm\}km/);
+  assert.match(matchMapSource, /자동 확대 · 다음 \$\{nextRadiusKm\}km/);
+  assert.match(matchMapSource, /현재 요청: \{expansionReasonLabel\[expansionReason\]\}/);
+  assert.match(matchMapSource, /모두 수용 곤란이면 즉시 확대 · 미회신이 남으면 30초 후 자동 확대/);
+  assert.doesNotMatch(matchMapSource, /latitudeDelta|longitudeDelta/);
+  assert.ok(paramedicSource.indexOf("요청 범위 확대") < paramedicSource.indexOf("병원 요청 갱신"));
+  assert.match(paramedicSource, /matchingState\?\.currentRadiusKm \?\? requestRadius/);
+  assert.doesNotMatch(paramedicSource, /matchingState\.currentRadiusKm > 0[\s\S]*?matchingState\.nextRadiusKm/);
+  assert.match(paramedicSource, /matchingState\s*\? matchingState\.nextRadiusKm/);
+  assert.match(paramedicSource, /nextExpansionAt=\{matchingState\?\.nextExpansionAt\}/);
+  assert.match(paramedicSource, /Notification\.requestPermission\(\)/);
+  assert.match(paramedicSource, /Notification\.permission === "granted"/);
+  assert.match(paramedicSource, /navigator\.vibrate\(\[180, 90, 180\]\)/);
+  assert.match(paramedicSource, /store\?\.requests\.filter\(\(request\) => request\.status === "ACCEPTED"\)/);
+  assert.match(paramedicSource, /if \(!acceptedTrackingReadyRef\.current\)[\s\S]*?acceptedRequestIdsRef\.current = currentIds/);
+  assert.match(paramedicSource, /allAccepted\.filter\(\(request\) => !acceptedRequestIdsRef\.current\.has\(request\.id\)\)/);
+  assert.match(paramedicSource, /hospital\?\.location \?\? request\.hospitalLocation/);
+  assert.match(paramedicSource, /destinationHospital\?\.location \?\? destinationRequest\?\.hospitalLocation/);
 });

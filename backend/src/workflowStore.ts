@@ -8,6 +8,7 @@ import {
   type TransactWriteCommandInput,
 } from "@aws-sdk/lib-dynamodb";
 import { AuthorizationError, primaryRole } from "./auth.js";
+import { canAccessHospital } from "./hospitalScope.js";
 import { getConfirmedState, StoreConflictError, StoreNotFoundError } from "./store.js";
 import { missingInitialAssessmentPaths } from "./assessmentContract.js";
 import type {
@@ -134,10 +135,10 @@ export async function assertCaseAccess(principal: AuthPrincipal, caseId: string)
   const { meta, hospitalRequests } = await getWorkflowCase(caseId);
   if (!meta) throw new StoreNotFoundError("사건을 찾을 수 없습니다.");
   if (principal.roles.includes("paramedic") && meta.assignedParamedicIds.includes(principal.sub)) return;
-  if (principal.roles.includes("hospital") && principal.hospitalId
+  if (principal.roles.includes("hospital")
     && (meta.destinationHospitalId
-      ? meta.destinationHospitalId === principal.hospitalId
-      : hospitalRequests.some((request) => request.hospitalId === principal.hospitalId))) return;
+      ? canAccessHospital(principal, meta.destinationHospitalId)
+      : hospitalRequests.some((request) => canAccessHospital(principal, request.hospitalId)))) return;
   throw new AuthorizationError("이 사건에 접근할 권한이 없습니다.");
 }
 
@@ -254,7 +255,7 @@ function updatedHospitalRequest(
     "HANDOFF_ACCEPTED",
   ].includes(type)) return undefined;
   if (!existing) throw new StoreNotFoundError("병원 수용 문의를 찾을 수 없습니다.");
-  if (principal.roles.includes("hospital") && principal.hospitalId !== existing.hospitalId) {
+  if (principal.roles.includes("hospital") && !canAccessHospital(principal, existing.hospitalId)) {
     throw new AuthorizationError("다른 병원의 수용 문의에는 회신할 수 없습니다.");
   }
 

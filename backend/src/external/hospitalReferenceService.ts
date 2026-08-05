@@ -1,7 +1,12 @@
 import { fetchHiraFacilities } from "./hira.js";
 import { fetchKakaoRoute } from "./kakao.js";
+import {
+  mergeVerifiedGangwonDirectory,
+  VERIFIED_GANGWON_EMERGENCY_FACILITIES,
+} from "./gangwonEmergencyDirectory.js";
 import { enrichFacilitiesWithNmcRealtime, fetchNmcFacilities, type ReferenceFacility } from "./nmc.js";
 import { getExternalApiSecrets } from "./secretProvider.js";
+import { configuredNetworkHospitalIds } from "../hospitalScope.js";
 
 function haversineKm(origin: { latitude: number; longitude: number }, facility: ReferenceFacility) {
   if (facility.latitude === undefined || facility.longitude === undefined) return Number.POSITIVE_INFINITY;
@@ -59,6 +64,25 @@ export function mergeEmergencyFacilities(nmc: ReferenceFacility[], hira: Referen
   });
 }
 
+export function matchingNetworkHospitalIds(raw = process.env.HOSPITAL_NETWORK_ALLOWED_IDS ?? "") {
+  const configured = configuredNetworkHospitalIds(raw);
+  return configured.size > 0
+    ? configured
+    : new Set(VERIFIED_GANGWON_EMERGENCY_FACILITIES.map((facility) => facility.id));
+}
+
+export function selectNetworkHospitalFacilities(
+  facilities: ReferenceFacility[],
+  origin: { latitude: number; longitude: number },
+  allowedIds = matchingNetworkHospitalIds(),
+) {
+  return facilities
+    .filter((facility) => allowedIds.has(facility.id))
+    .filter((facility) => facility.latitude !== undefined && facility.longitude !== undefined)
+    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b))
+    .slice(0, allowedIds.size);
+}
+
 export async function getHospitalReferences(latitude: number, longitude: number) {
   const secrets = await getExternalApiSecrets();
   const origin = { latitude, longitude };
@@ -66,12 +90,11 @@ export async function getHospitalReferences(latitude: number, longitude: number)
     fetchNmcFacilities(secrets, latitude, longitude),
     fetchHiraFacilities(secrets, latitude, longitude),
   ]);
-  const nmc = settled[0].status === "fulfilled" ? settled[0].value : [];
+  const liveNmc = settled[0].status === "fulfilled" ? settled[0].value : [];
+  const nmc = mergeVerifiedGangwonDirectory(liveNmc);
   const hira = settled[1].status === "fulfilled" ? settled[1].value : [];
-  const candidates = mergeEmergencyFacilities(nmc, hira)
-    .filter((facility) => facility.latitude !== undefined && facility.longitude !== undefined)
-    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b))
-    .slice(0, 8);
+  const allowedIds = matchingNetworkHospitalIds();
+  const candidates = selectNetworkHospitalFacilities(mergeEmergencyFacilities(nmc, hira), origin, allowedIds);
   const discoveryFacilities = hira
     .filter((facility) => facility.latitude !== undefined && facility.longitude !== undefined)
     .filter((facility) => /^(상급종합|종합병원|병원)$/.test(facility.careLevel ?? ""))
@@ -82,9 +105,7 @@ export async function getHospitalReferences(latitude: number, longitude: number)
     undefined,
     discoveryFacilities,
   );
-  const facilities = realtime.facilities
-    .sort((a, b) => haversineKm(origin, a) - haversineKm(origin, b))
-    .slice(0, 8);
+  const facilities = selectNetworkHospitalFacilities(realtime.facilities, origin, allowedIds);
 
   const hospitals = await Promise.all(facilities.map(async (facility) => {
     const route = await fetchKakaoRoute(

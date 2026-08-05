@@ -47,3 +47,28 @@
   background: #13354a;
   box-shadow: 0 6px 15px rgba(20, 55, 70, 0.2);
 }
+
+.routeLabel {
+  max-width: 150px;
+  overflow: hidden;
+  padding: 6px 9px;
+  border: 2px solid #087f8c;
+  border-radius: 999px;
+  color: #fff;
+  background: #087f8c;
+  box-shadow: 0 5px 14px rgba(13, 49, 68, .24);
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routeLabelOrigin {
+  border-color: #123a55;
+  background: #123a55;
+}
+
+.routeLabelDestination {
+  border-color: #c8484f;
+  background: #c8484f;
+}

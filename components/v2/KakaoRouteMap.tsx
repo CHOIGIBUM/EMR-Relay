@@ -15,6 +15,7 @@ export type KakaoMapsApi = {
   Marker: new (options: { map: KakaoMapInstance; position: unknown; title: string }) => unknown;
   CustomOverlay: new (options: { map: KakaoMapInstance; position: unknown; content: HTMLElement; yAnchor?: number }) => unknown;
   Polyline: new (options: { map: KakaoMapInstance; path: unknown[]; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string }) => unknown;
+  Circle: new (options: { map: KakaoMapInstance; center: unknown; radius: number; strokeWeight: number; strokeColor: string; strokeOpacity: number; strokeStyle: string; fillColor: string; fillOpacity: number }) => unknown;
 };
 
 type KakaoWindow = Window & { kakao?: { maps: KakaoMapsApi } };
@@ -83,13 +84,31 @@ export default function KakaoRouteMap({ origin, destination, destinationName, or
       const map = new maps.Map(containerRef.current, { center: start, level: 7 });
       new maps.Marker({ map, position: start, title: originName });
       new maps.Marker({ map, position: end, title: destinationName });
-      const roadPath = (path ?? []).map((point) => new maps.LatLng(point.latitude, point.longitude));
-      if (roadPath.length > 1) {
-        new maps.Polyline({ map, path: roadPath, strokeWeight: 5, strokeColor: "#0b8d99", strokeOpacity: 0.82, strokeStyle: "solid" });
-      }
+      const originLabel = document.createElement("div");
+      originLabel.className = `${styles.routeLabel} ${styles.routeLabelOrigin}`;
+      originLabel.textContent = originName;
+      const destinationLabel = document.createElement("div");
+      destinationLabel.className = `${styles.routeLabel} ${styles.routeLabelDestination}`;
+      destinationLabel.textContent = destinationName;
+      new maps.CustomOverlay({ map, position: start, content: originLabel, yAnchor: 1.75 });
+      new maps.CustomOverlay({ map, position: end, content: destinationLabel, yAnchor: 1.75 });
+
+      const hasRoadPath = Boolean(path && path.length > 1);
+      const routeCoordinates: readonly Coordinate[] = path && path.length > 1 ? path : [
+        { latitude: origin.latitude, longitude: origin.longitude },
+        { latitude: destination.latitude, longitude: destination.longitude },
+      ];
+      const roadPath = routeCoordinates.map((point) => new maps.LatLng(point.latitude, point.longitude));
+      new maps.Polyline({
+        map,
+        path: roadPath,
+        strokeWeight: hasRoadPath ? 6 : 4,
+        strokeColor: "#087f8c",
+        strokeOpacity: hasRoadPath ? 0.9 : 0.72,
+        strokeStyle: hasRoadPath ? "solid" : "shortdash",
+      });
       const bounds = new maps.LatLngBounds();
-      bounds.extend(start);
-      bounds.extend(end);
+      roadPath.forEach((point) => bounds.extend(point));
       map.setBounds(bounds);
       window.setTimeout(() => map.relayout(), 0);
       setStatus("ready");
@@ -99,7 +118,10 @@ export default function KakaoRouteMap({ origin, destination, destinationName, or
     return () => { cancelled = true; };
   }, [appKey, destination.latitude, destination.longitude, destinationName, origin.latitude, origin.longitude, originName, path]);
 
-  const directionsUrl = buildKakaoDirectionsLink({ ...destination, name: destinationName });
+  const directionsUrl = buildKakaoDirectionsLink(
+    { ...origin, name: originName },
+    { ...destination, name: destinationName },
+  );
 
   return (
     <div className={styles.shell} data-status={status}>

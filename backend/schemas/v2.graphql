@@ -13,6 +13,7 @@ type Query {
 type Mutation {
   executeCommand(input: ExecuteCommandInput!): CaseUpdate!
   requestHospitalMatching(input: HospitalMatchingInput!): MatchingJob!
+  expandHospitalMatching(input: HospitalMatchingExpansionInput!): MatchingJob!
   createTranscribeSession(input: TranscribeSessionInput!): TranscribeSession!
   structureVoiceUpdate(input: VoiceProposalInput!): VoiceProposal!
   resetDemoCases(input: DemoResetInput!): DemoResetResult!
@@ -62,6 +63,7 @@ type CaseSnapshot {
   meta: AWSJSON!
   events: AWSJSON!
   hospitalRequests: AWSJSON!
+  matchingState: AWSJSON
 }
 
 type HospitalInboxItem {
@@ -98,7 +100,10 @@ type MatchingJob {
   status: String!
   wave: Int!
   radiusKm: Float!
+  previousRadiusKm: Float
   maxRadiusKm: Float!
+  nextExpansionAt: AWSDateTime
+  expansionReason: String
   createdAt: AWSDateTime!
 }
 
@@ -145,6 +150,11 @@ input HospitalMatchingInput {
   longitude: Float!
   radiusKm: Float
   maxRadiusKm: Float
+}
+
+input HospitalMatchingExpansionInput {
+  caseId: ID!
+  expansionId: ID!
 }
 
 enum VoiceUpdateFocus {

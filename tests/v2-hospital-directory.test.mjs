@@ -4,31 +4,20 @@ import test from "node:test";
 import { createInitialV2Store } from "../lib/v2/fixtures.ts";
 import { DEFAULT_V2_HOSPITAL_ID, V2_DEMO_HOSPITALS } from "../lib/v2/hospitalDirectory.ts";
 
-test("uses NMC HPIDs as the canonical IDs for all three hospital accounts", () => {
+test("uses NMC HPIDs as the canonical IDs for the demo-scene hospital switcher", () => {
   assert.equal(DEFAULT_V2_HOSPITAL_ID, "A2200012");
-  assert.deepEqual(V2_DEMO_HOSPITALS.map(({ id, name, address }) => ({ id, name, address })), [
-    {
-      id: "A2200012",
-      name: "강원특별자치도속초의료원",
-      address: "강원특별자치도 속초시 영랑호반길 3 (영랑동)",
-    },
-    {
-      id: "A2200011",
-      name: "강원특별자치도강릉의료원",
-      address: "강원특별자치도 강릉시 경강로 2007 (남문동)",
-    },
-    {
-      id: "A2200003",
-      name: "의료법인동해동인병원",
-      address: "강원특별자치도 동해시 하평로 26 (평릉동)",
-    },
+  assert.deepEqual(V2_DEMO_HOSPITALS.map(({ id }) => id), [
+    "A2200012", "A2200046", "A2200010", "A2200011", "A2200005",
+    "A2200008", "A2200038", "A2200003", "A2200007",
   ]);
+  assert.equal(V2_DEMO_HOSPITALS.find(({ id }) => id === "A2200046")?.name, "의료법인온세움의료재단온재병원");
 });
 
 test("keeps every fixture route joinable to the canonical hospital directory", () => {
   const store = createInitialV2Store();
   const ids = new Set(store.hospitals.map(({ id }) => id));
-  assert.deepEqual([...ids], ["A2200012", "A2200011", "A2200003"]);
+  assert.equal(ids.size, 9);
+  assert.equal(ids.has("A2200046"), true);
   assert.equal(store.routes.every(({ hospitalId }) => ids.has(hospitalId)), true);
   assert.equal(store.routes.some(({ hospitalId }) => hospitalId.startsWith("H-GW-EMG-")), false);
 });

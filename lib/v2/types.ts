@@ -122,6 +122,35 @@ export type ConfirmedPatientCard = PatientAssessment & {
   confirmedBy: "paramedic";
 };
 
+export type MatchingStateStatus =
+  | "QUEUED"
+  | "WAITING_RESPONSES"
+  | "EXPANSION_QUEUED"
+  | "ACCEPTED"
+  | "EXHAUSTED";
+
+export type MatchingExpansionReason =
+  | "INITIAL_REQUEST"
+  | "ALL_DECLINED"
+  | "RESPONSE_TIMEOUT"
+  | "MANUAL_REQUEST"
+  | "NO_CANDIDATES"
+  | "MAX_RADIUS_REACHED"
+  | "ACCEPTED";
+
+export type CaseMatchingState = {
+  caseId: string;
+  rootRequestId: string;
+  currentWave: number;
+  currentRadiusKm: number;
+  maxRadiusKm: number;
+  status: MatchingStateStatus;
+  nextRadiusKm?: number;
+  nextExpansionAt?: string;
+  expansionReason: MatchingExpansionReason;
+  updatedAt: string;
+};
+
 export type DispatchCase = {
   id: string;
   code: string;
@@ -142,6 +171,7 @@ export type DispatchCase = {
   timeline: Partial<Record<"dispatchStartedAt" | "sceneArrivedAt" | "patientContactAt" | "cardConfirmedAt" | "transportStartedAt" | "hospitalArrivedAt", string>>;
   version: number;
   hospitalRequests?: HospitalRequest[];
+  matchingState?: CaseMatchingState | null;
 };
 
 export type Hospital = {

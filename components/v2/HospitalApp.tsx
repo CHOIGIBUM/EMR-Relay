@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -15,6 +15,12 @@ import {
   X,
 } from "lucide-react";
 import { useAuth } from "@/components/auth/AuthProvider";
+import {
+  isV2NetworkHospitalId,
+  V2_DEMO_HOSPITALS,
+  V2_HOSPITAL_NETWORK_ID,
+  V2_NETWORK_HOSPITAL_IDS,
+} from "@/lib/v2/hospitalDirectory";
 import type { HospitalDecision, HospitalInboxItem } from "@/lib/v2/types";
 import Brand from "./Brand";
 import PatientCard from "./PatientCard";
@@ -31,26 +37,60 @@ const statusLabel = {
 
 export default function HospitalApp() {
   const auth = useAuth();
-  const { api, store, loading, pending, error, refresh, run } = useV2();
-  const localMode = process.env.NEXT_PUBLIC_EMS_DATA_MODE !== "remote";
-  const defaultHospitalId = auth.user?.institutionId || store?.hospitals[0]?.id || "";
+  const { api, store, loading, pending, error, refresh, run, selectHospitalRealtimeScope } = useV2();
+  const accountHospitalId = auth.user?.institutionId ?? "";
+  const isNetworkAccount = accountHospitalId === V2_HOSPITAL_NETWORK_ID;
+  const networkHospitals = useMemo(() => V2_DEMO_HOSPITALS.map((fallback) => (
+    store?.hospitals.find((hospital) => hospital.id === fallback.id) ?? fallback
+  )), [store?.hospitals]);
+  const defaultHospitalId = isNetworkAccount
+    ? V2_NETWORK_HOSPITAL_IDS[0]
+    : accountHospitalId || store?.hospitals[0]?.id || "";
   const [hospitalId, setHospitalId] = useState(defaultHospitalId);
   const [inbox, setInbox] = useState<HospitalInboxItem[]>([]);
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
   const [decision, setDecision] = useState<HospitalDecision | null>(null);
   const [inboxError, setInboxError] = useState<string | null>(null);
+  const inboxLoadSequence = useRef(0);
+  const activeHospitalId = useRef(defaultHospitalId);
 
-  const effectiveHospitalId = hospitalId || defaultHospitalId;
+  const effectiveHospitalId = isNetworkAccount && isV2NetworkHospitalId(hospitalId)
+    ? hospitalId
+    : defaultHospitalId;
+
+  useEffect(() => {
+    if (!effectiveHospitalId) return;
+    activeHospitalId.current = effectiveHospitalId;
+    selectHospitalRealtimeScope(effectiveHospitalId);
+    return () => { inboxLoadSequence.current += 1; };
+  }, [effectiveHospitalId, selectHospitalRealtimeScope]);
 
   const loadInbox = useCallback(async () => {
     if (!effectiveHospitalId) return;
+    const requestedHospitalId = effectiveHospitalId;
+    const sequence = ++inboxLoadSequence.current;
     try {
-      setInbox(await api.listHospitalInbox(effectiveHospitalId));
+      const nextInbox = await api.listHospitalInbox(requestedHospitalId);
+      if (sequence !== inboxLoadSequence.current || activeHospitalId.current !== requestedHospitalId) return;
+      setInbox(nextInbox);
       setInboxError(null);
     } catch (reason) {
+      if (sequence !== inboxLoadSequence.current || activeHospitalId.current !== requestedHospitalId) return;
       setInboxError(reason instanceof Error ? reason.message : "수용 요청 목록을 갱신하지 못했습니다.");
     }
   }, [api, effectiveHospitalId]);
+
+  const changeHospital = useCallback((nextHospitalId: string) => {
+    if (!isNetworkAccount || !isV2NetworkHospitalId(nextHospitalId)) return;
+    inboxLoadSequence.current += 1;
+    activeHospitalId.current = nextHospitalId;
+    setHospitalId(nextHospitalId);
+    setInbox([]);
+    setSelectedRequestId(null);
+    setDecision(null);
+    setInboxError(null);
+    selectHospitalRealtimeScope(nextHospitalId);
+  }, [isNetworkAccount, selectHospitalRealtimeScope]);
 
   useEffect(() => {
     const initial = window.setTimeout(() => void loadInbox(), 0);
@@ -65,6 +105,7 @@ export default function HospitalApp() {
 
   const selected = inbox.find((item) => item.request.id === selectedRequestId) ?? null;
   const institution = store?.hospitals.find((item) => item.id === effectiveHospitalId)
+    ?? networkHospitals.find((item) => item.id === effectiveHospitalId)
     ?? inbox.find((item) => item.hospital.id === effectiveHospitalId)?.hospital
     ?? null;
   const isDestination = Boolean(selected && selected.incident.destinationRequestId === selected.request.id);
@@ -104,10 +145,19 @@ export default function HospitalApp() {
 
   return (
     <main className={styles.hospitalShell}>
-      <Brand subtitle="병원 수용 담당" />
+      <Brand
+        subtitle="병원 수용 담당"
+        hospitalContext={{
+          id: effectiveHospitalId,
+          name: institution?.name ?? auth.user?.displayName ?? effectiveHospitalId,
+          ...(isNetworkAccount ? {
+            options: networkHospitals.map(({ id, name }) => ({ id, name })),
+            onChange: changeHospital,
+          } : {}),
+        }}
+      />
       <div className={styles.hospitalToolbar}>
         <div><Stethoscope /><span><small>현재 기관</small><strong>{institution?.name ?? "기관 확인 필요"}</strong></span></div>
-        {localMode ? <label>로컬 기관 전환<select value={effectiveHospitalId} onChange={(event) => { setHospitalId(event.target.value); setSelectedRequestId(null); }}>{store.hospitals.map((hospital) => <option value={hospital.id} key={hospital.id}>{hospital.name}</option>)}</select></label> : null}
         <button type="button" onClick={() => void refresh()}><RefreshCw /> 새로고침</button>
       </div>
       {error ? <div className={styles.desktopError} role="alert"><AlertTriangle /> {error}</div> : null}

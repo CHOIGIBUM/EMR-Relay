@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getV2Api, type EmsV2Api } from "@/lib/v2/api";
 import { createInitialV2Store } from "@/lib/v2/fixtures";
+import { DEFAULT_V2_HOSPITAL_ID, isV2NetworkHospitalId, V2_HOSPITAL_NETWORK_ID } from "@/lib/v2/hospitalDirectory";
 import type { DemoResetResult, V2RealtimeScope, V2RealtimeStatus, V2Role, V2Store } from "@/lib/v2/types";
 
 type V2ContextValue = {
@@ -16,6 +17,7 @@ type V2ContextValue = {
   refresh(): Promise<void>;
   run<T>(operation: () => Promise<T>): Promise<T>;
   resetDemoCases(confirmation: string): Promise<DemoResetResult>;
+  selectHospitalRealtimeScope(hospitalId: string | null): void;
 };
 
 const V2Context = createContext<V2ContextValue | null>(null);
@@ -29,6 +31,21 @@ export function V2Provider({ children, role, api: injectedApi }: { children: Rea
   const [error, setError] = useState<string | null>(null);
   const remote = process.env.NEXT_PUBLIC_EMS_DATA_MODE === "remote";
   const [realtimeStatus, setRealtimeStatus] = useState<V2RealtimeStatus>(remote ? "connecting" : "disconnected");
+  const hospitalAccountId = auth.user?.institutionId ?? null;
+  const [hospitalRealtimeHospitalId, setHospitalRealtimeHospitalId] = useState<string | null>(() => (
+    role !== "hospital"
+      ? null
+      : hospitalAccountId === V2_HOSPITAL_NETWORK_ID
+        ? DEFAULT_V2_HOSPITAL_ID
+        : hospitalAccountId
+  ));
+
+  const selectHospitalRealtimeScope = useCallback((hospitalId: string | null) => {
+    if (role !== "hospital") return;
+    if (hospitalId && hospitalAccountId === V2_HOSPITAL_NETWORK_ID && !isV2NetworkHospitalId(hospitalId)) return;
+    if (hospitalId && hospitalAccountId !== V2_HOSPITAL_NETWORK_ID && hospitalId !== hospitalAccountId) return;
+    setHospitalRealtimeHospitalId(hospitalId);
+  }, [hospitalAccountId, role]);
 
   const refresh = useCallback(async () => {
     try {
@@ -78,12 +95,12 @@ export function V2Provider({ children, role, api: injectedApi }: { children: Rea
   const realtimeScope = useMemo<V2RealtimeScope | null>(() => {
     if (!remote) return null;
     if (role === "hospital") {
-      const hospitalId = auth.user?.institutionId;
+      const hospitalId = hospitalRealtimeHospitalId;
       return hospitalId ? { role, hospitalId } : null;
     }
     const caseIds = caseIdsKey.split("|").filter(Boolean);
     return caseIds.length ? { role, caseIds } : null;
-  }, [auth.user?.institutionId, caseIdsKey, remote, role]);
+  }, [caseIdsKey, hospitalRealtimeHospitalId, remote, role]);
 
   useEffect(() => {
     if (!realtimeScope) return;
@@ -140,8 +157,8 @@ export function V2Provider({ children, role, api: injectedApi }: { children: Rea
   }, [api, role, run]);
 
   const value = useMemo<V2ContextValue>(
-    () => ({ api, store, loading, pending, error, realtimeStatus, refresh, run, resetDemoCases }),
-    [api, error, loading, pending, realtimeStatus, refresh, resetDemoCases, run, store],
+    () => ({ api, store, loading, pending, error, realtimeStatus, refresh, run, resetDemoCases, selectHospitalRealtimeScope }),
+    [api, error, loading, pending, realtimeStatus, refresh, resetDemoCases, run, selectHospitalRealtimeScope, store],
   );
   return <V2Context.Provider value={value}>{children}</V2Context.Provider>;
 }
