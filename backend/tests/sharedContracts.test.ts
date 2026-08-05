@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { completedInitialAssessmentSteps, missingInitialAssessmentPaths } from "../src/assessmentContract.js";
 import { authorizeCommand } from "../src/auth.js";
+import { hospitalResponseUnavailableReason } from "../src/hospitalResponsePolicy.js";
 import { normalizeAgentModelCandidate, validateAgentModelOutput, validateDirectFactsRequest } from "../src/schemas.js";
 import type { AuthPrincipal, ConfirmedState, FactPath, ProposalValue } from "../src/types.js";
 import { INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP } from "../src/types.js";
@@ -46,6 +47,19 @@ test("validates the v2 hospital broadcast and response contracts", () => {
     payload: { requestId: "request-001", decision: "ACCEPTED" },
   });
   assert.equal(response.ok, true);
+});
+
+test("keeps a hospital request replyable after its expansion window has elapsed", () => {
+  assert.equal(hospitalResponseUnavailableReason({
+    responseExpiresAt: "2020-01-01T00:00:00.000Z",
+  }), null);
+  assert.equal(hospitalResponseUnavailableReason({
+    destinationHospitalId: "A2200012",
+    responseExpiresAt: "2020-01-01T00:00:00.000Z",
+  }), "이미 이송 병원이 확정되어 이 요청에는 회신할 수 없습니다.");
+  assert.equal(hospitalResponseUnavailableReason({
+    selectionStatus: "NOT_SELECTED",
+  }), "이미 이송 병원이 확정되어 이 요청에는 회신할 수 없습니다.");
 });
 
 test("rejects duplicate hospitals and an unsupported Transcribe format", () => {

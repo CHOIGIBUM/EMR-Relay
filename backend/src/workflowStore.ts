@@ -11,6 +11,7 @@ import { AuthorizationError, primaryRole } from "./auth.js";
 import { canAccessHospital } from "./hospitalScope.js";
 import { getConfirmedState, StoreConflictError, StoreNotFoundError } from "./store.js";
 import { missingInitialAssessmentPaths } from "./assessmentContract.js";
+import { hospitalResponseUnavailableReason } from "./hospitalResponsePolicy.js";
 import type {
   AuthPrincipal,
   CaseCommand,
@@ -347,11 +348,13 @@ export async function executeCaseCommand(caseId: string, command: CaseCommand, p
       throw new StoreConflictError("최종 이송병원과 인수 확인 병원이 일치하지 않습니다.");
     }
   }
-  if (command.type === "HOSPITAL_RESPONSE_RECORDED"
-    && command.payload.decision === "ACCEPTED"
-    && existingRequest?.responseExpiresAt
-    && Date.parse(existingRequest.responseExpiresAt) <= Date.now()) {
-    throw new StoreConflictError("수용 가능 회신 시간이 만료되었습니다. 구급대의 새 요청을 기다려 주세요.");
+  if (command.type === "HOSPITAL_RESPONSE_RECORDED") {
+    const unavailableReason = hospitalResponseUnavailableReason({
+      ...(meta?.destinationHospitalId ? { destinationHospitalId: meta.destinationHospitalId } : {}),
+      ...(existingRequest?.selectionStatus ? { selectionStatus: existingRequest.selectionStatus } : {}),
+      ...(existingRequest?.responseExpiresAt ? { responseExpiresAt: existingRequest.responseExpiresAt } : {}),
+    });
+    if (unavailableReason) throw new StoreConflictError(unavailableReason);
   }
 
   const occurredAt = new Date().toISOString();
