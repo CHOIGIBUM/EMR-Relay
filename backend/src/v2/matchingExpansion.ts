@@ -63,6 +63,9 @@ export async function scheduleNextMatchingWave(
   reason: Exclude<MatchingExpansionReason, "INITIAL_REQUEST" | "MAX_RADIUS_REACHED" | "ACCEPTED">,
   options: { immediate?: boolean; now?: Date } = {},
 ) {
+  if (reason !== "MANUAL_REQUEST" || options.immediate !== true) {
+    throw new Error("병원 요청 범위는 구급대원의 수동 확대 요청으로만 변경할 수 있습니다.");
+  }
   const now = options.now ?? new Date();
   const nextRadiusKm = nextWaveRadius(current.radiusKm, current.maxRadiusKm);
   if (nextRadiusKm === null) {
@@ -118,6 +121,38 @@ export async function scheduleNextMatchingWave(
     updatedAt: now.toISOString(),
   });
   return job;
+}
+
+export async function markMatchingAwaitingManualExpansion(
+  current: MatchingJobRecord,
+  reason: Exclude<MatchingExpansionReason, "MAX_RADIUS_REACHED" | "ACCEPTED">,
+  now = new Date(),
+) {
+  const nextRadiusKm = nextWaveRadius(current.radiusKm, current.maxRadiusKm);
+  if (nextRadiusKm === null) {
+    await putMatchingState({
+      caseId: current.caseId,
+      rootRequestId: current.rootRequestId,
+      currentWave: current.wave,
+      currentRadiusKm: current.radiusKm,
+      maxRadiusKm: current.maxRadiusKm,
+      status: "EXHAUSTED",
+      expansionReason: "MAX_RADIUS_REACHED",
+      updatedAt: now.toISOString(),
+    });
+    return;
+  }
+  await putMatchingState({
+    caseId: current.caseId,
+    rootRequestId: current.rootRequestId,
+    currentWave: current.wave,
+    currentRadiusKm: current.radiusKm,
+    maxRadiusKm: current.maxRadiusKm,
+    status: "WAITING_RESPONSES",
+    nextRadiusKm,
+    expansionReason: reason,
+    updatedAt: now.toISOString(),
+  });
 }
 
 export async function currentMatchingJob(input: {

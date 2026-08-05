@@ -9,16 +9,13 @@ import { assertCaseAccess, executeCaseCommand, getCaseMeta, getWorkflowCase } fr
 import type { CaseCommand } from "../types.js";
 import {
   currentMatchingJob,
+  markMatchingAwaitingManualExpansion,
   markMatchingAccepted,
   matchingJobView,
   matchingStateView,
   scheduleNextMatchingWave,
 } from "./matchingExpansion.js";
-import {
-  decideExpansion,
-  INITIAL_MATCHING_RADIUS_KM,
-  MAX_MATCHING_RADIUS_KM,
-} from "./matchingPolicy.js";
+import { INITIAL_MATCHING_RADIUS_KM, MAX_MATCHING_RADIUS_KM } from "./matchingPolicy.js";
 import {
   isIamIdentity,
   parseAwsJson,
@@ -137,14 +134,11 @@ async function updateExpansionAfterHospitalResponse(caseId: string) {
   const job = await currentMatchingJob(state);
   if (!job) return;
   const currentWaveRequests = workflow.hospitalRequests.filter((request) => request.wave === state.currentWave);
-  const decision = decideExpansion({
-    statuses: currentWaveRequests.map((request) => request.status),
-    nextExpansionAt: state.nextExpansionAt ?? new Date(Date.now() + 86_400_000).toISOString(),
-  });
-  if (decision.action === "STOP") {
+  const statuses = currentWaveRequests.map((request) => request.status);
+  if (workflow.hospitalRequests.some((request) => request.status === "ACCEPTED")) {
     await markMatchingAccepted(job);
-  } else if (decision.action === "EXPAND" && decision.reason === "ALL_DECLINED") {
-    await scheduleNextMatchingWave(job, "ALL_DECLINED", { immediate: true });
+  } else if (statuses.length > 0 && statuses.every((status) => status === "DECLINED")) {
+    await markMatchingAwaitingManualExpansion(job, "ALL_DECLINED");
   }
 }
 
@@ -202,9 +196,8 @@ async function executeCommand(event: ResolverEvent) {
     try {
       await updateExpansionAfterHospitalResponse(caseId);
     } catch (error) {
-      // The hospital decision is already committed. A delayed expansion job is
-      // also scheduled, so an acceleration failure must not hide the response
-      // from either realtime subscriber.
+      // The hospital decision is already committed. A state-update failure must
+      // not hide the response from either realtime subscriber.
       console.error(JSON.stringify({
         level: "error",
         code: "MATCHING_RESPONSE_ACCELERATION_FAILED",

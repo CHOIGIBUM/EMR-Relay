@@ -265,7 +265,7 @@ export default function ParamedicApp() {
     if (!incident || accepted.length || !nextRadius) return;
     try {
       await run(() => api.expandMatching(incident.id));
-      setRangeNotice(`요청 범위를 확대했습니다. 최대 ${nextRadius}km 후보를 확인합니다.`);
+      setRangeNotice(`${nextRadius}km 범위 확대 요청을 전송했습니다.`);
     } catch { /* V2Provider renders the message. */ }
   };
 
@@ -480,7 +480,6 @@ export default function ParamedicApp() {
             sceneAddress={incident.sceneAddress}
             radiusKm={currentMatchRadius}
             nextRadiusKm={nextRadius}
-            nextExpansionAt={matchingState?.nextExpansionAt}
             expansionReason={matchingState?.expansionReason}
             matchingStatus={matchingState?.status}
             expanding={!accepted.length && Boolean(nextRadius)}

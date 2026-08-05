@@ -161,13 +161,14 @@ test("events after destination selection remain visible to the selected hospital
   assert.match(source, /REASSESSMENT_CONFIRMED[\s\S]*?meta\.destinationHospitalId[\s\S]*?hospitalId/);
 });
 
-test("hospital decisions remain realtime events and can accelerate an all-declined wave", () => {
+test("hospital decisions remain realtime events while radius expansion stays manual", () => {
   const schema = readFileSync(join(process.cwd(), "schemas", "v2.graphql"), "utf8");
   const source = readFileSync(join(process.cwd(), "src", "v2", "appsyncHandler.ts"), "utf8");
   assert.match(schema, /onCaseUpdate[\s\S]*@aws_subscribe\(mutations: \["executeCommand", "publishCaseUpdate"\]\)/);
   assert.match(schema, /onHospitalInbox[\s\S]*@aws_subscribe\(mutations: \["executeCommand", "publishCaseUpdate"\]\)/);
   assert.match(source, /HOSPITAL_RESPONSE_RECORDED[\s\S]*updateExpansionAfterHospitalResponse/);
-  assert.match(source, /scheduleNextMatchingWave\(job, "ALL_DECLINED", \{ immediate: true \}\)/);
+  assert.match(source, /markMatchingAwaitingManualExpansion\(job, "ALL_DECLINED"\)/);
+  assert.doesNotMatch(source, /scheduleNextMatchingWave\(job, "ALL_DECLINED"/);
   assert.match(source, /requestStatus: indexedRequest\.status/);
 });
 

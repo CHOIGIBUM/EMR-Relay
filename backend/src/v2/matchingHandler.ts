@@ -7,14 +7,15 @@ import type { HospitalRequest } from "../types.js";
 import { publishCaseUpdate } from "./appsyncPublisher.js";
 import { nextWaveRadius, selectWaveCandidates, shouldStopExpansion, type MatchCandidate } from "./matchingPolicy.js";
 import {
+  markMatchingAwaitingManualExpansion,
   markMatchingAccepted,
   matchingResponseWindowSeconds,
-  scheduleNextMatchingWave,
 } from "./matchingExpansion.js";
 import {
   claimMatchJob,
   getHospitalReferenceCache,
   getMatchJob,
+  getMatchingState,
   markMatchJob,
   putHospitalReferenceCache,
   releaseMatchJobClaim,
@@ -113,20 +114,20 @@ async function processJob(message: MatchingJobRecord) {
     createdAt: String(stored.createdAt),
     updatedAt: String(stored.updatedAt),
   };
-  if (stored.status === "COMPLETED") {
-    const [meta, workflow] = await Promise.all([getCaseMeta(job.caseId), getWorkflowCase(job.caseId)]);
-    if (!meta || !isMatchingStageEligible(meta.stage)) return;
-    const requests = workflow.hospitalRequests.filter((request) => request.broadcastId === `${job.rootRequestId}-W${job.wave}`);
-    if (shouldStopExpansion({
-      ...(meta.destinationHospitalId ? { destinationHospitalId: meta.destinationHospitalId } : {}),
-      acceptedRequestCount: workflow.hospitalRequests.filter((request) => request.status === "ACCEPTED").length,
-    })) return;
-    await scheduleNextMatchingWave(job, requests.length ? "RESPONSE_TIMEOUT" : "NO_CANDIDATES", {
-      immediate: requests.length === 0,
-    });
+  if (stored.status === "COMPLETED") return;
+  if (stored.status !== "QUEUED") return;
+  const queuedState = await getMatchingState(job.caseId);
+  const initialRequestAuthorized = job.wave === 1
+    && queuedState?.status === "QUEUED"
+    && queuedState.nextRadiusKm === job.radiusKm;
+  const manualExpansionAuthorized = job.wave > 1
+    && queuedState?.status === "EXPANSION_QUEUED"
+    && queuedState.expansionReason === "MANUAL_REQUEST"
+    && queuedState.nextRadiusKm === job.radiusKm;
+  if (!initialRequestAuthorized && !manualExpansionAuthorized) {
+    await markMatchJob(job.caseId, job.rootRequestId, job.wave, "SKIPPED", { skipReason: "MANUAL_EXPANSION_NOT_REQUESTED" });
     return;
   }
-  if (stored.status !== "QUEUED") return;
   if (!await claimMatchJob(job.caseId, job.rootRequestId, job.wave)) return;
   const [meta, workflow, confirmedState] = await Promise.all([
     getCaseMeta(job.caseId),
@@ -167,7 +168,7 @@ async function processJob(message: MatchingJobRecord) {
   if (!candidates.length) {
     await markMatchJob(job.caseId, job.rootRequestId, job.wave, "COMPLETED", { candidateCount: 0 });
     await publishWaveResultSafely(job, meta, []);
-    await scheduleNextMatchingWave(job, "NO_CANDIDATES", { immediate: true });
+    await markMatchingAwaitingManualExpansion(job, "NO_CANDIDATES");
     return;
   }
 
@@ -198,7 +199,7 @@ async function processJob(message: MatchingJobRecord) {
   }));
   const committed = await writeMatchingWave({ job, meta, confirmedState, requests });
   await publishWaveResultSafely(job, { ...meta, version: committed.version, stage: committed.stage }, requests);
-  await scheduleNextMatchingWave(job, "RESPONSE_TIMEOUT");
+  await markMatchingAwaitingManualExpansion(job, job.wave === 1 ? "INITIAL_REQUEST" : "MANUAL_REQUEST");
 }
 
 export async function handler(event: SQSEvent): Promise<SQSBatchResponse> {

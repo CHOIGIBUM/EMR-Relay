@@ -57,26 +57,12 @@ const expansionReasonLabel: Record<MatchingExpansionReason, string> = {
   ACCEPTED: "수용 가능 회신",
 };
 
-function expansionTime(value?: string) {
-  if (!value) return undefined;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return undefined;
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Seoul",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  }).format(date);
-}
-
 export default function HospitalMatchMap({
   scene,
   sceneAddress,
   markers,
   radiusKm,
   nextRadiusKm,
-  nextExpansionAt,
   expansionReason,
   matchingStatus,
   expanding = false,
@@ -86,7 +72,6 @@ export default function HospitalMatchMap({
   markers: MatchMapMarker[];
   radiusKm: number;
   nextRadiusKm?: number;
-  nextExpansionAt?: string;
   expansionReason?: MatchingExpansionReason;
   matchingStatus?: MatchingStateStatus;
   expanding?: boolean;
@@ -150,10 +135,13 @@ export default function HospitalMatchMap({
       }
 
       const occupiedCells = new Map<string, number>();
+      const bounds = new maps.LatLngBounds();
+      bounds.extend(center);
       let activeMarkerNode: HTMLDivElement | null = null;
 
       markers.forEach((marker) => {
         const position = new maps.LatLng(marker.location.latitude, marker.location.longitude);
+        bounds.extend(position);
         const [offsetX, offsetY] = collisionOffset(marker, occupiedCells);
         const overlayNode = document.createElement("div");
         overlayNode.className = styles.mapHospitalOverlay;
@@ -222,9 +210,13 @@ export default function HospitalMatchMap({
         overlayNode.append(markerButton, information);
         new maps.CustomOverlay({ map, position, content: overlayNode, yAnchor: 0.5 });
       });
-      // Keep the scene as the stable visual origin while the request range grows.
-      // The full 15-120 km circle intentionally does not force a mobile-unusable fit.
-      window.setTimeout(() => map.relayout(), 0);
+      // Fit the scene and every actually requested hospital. The theoretical
+      // radius circle is intentionally excluded so a 30 km request cannot be
+      // mistaken for a 120 km map view.
+      window.setTimeout(() => {
+        map.relayout();
+        if (markers.length > 0) map.setBounds(bounds);
+      }, 0);
       setStatus("ready");
     }).catch(() => {
       if (!cancelled) setStatus("unavailable");
@@ -232,18 +224,14 @@ export default function HospitalMatchMap({
     return () => { cancelled = true; };
   }, [appKey, expanding, markers, nextRadiusKm, radiusKm, scene.latitude, scene.longitude]);
 
-  const scheduledAt = expansionTime(nextExpansionAt);
-  const scheduledPrefix = scheduledAt ? `${scheduledAt} · ` : "";
   const nextRangeText = nextRadiusKm
     ? expansionReason === "INITIAL_REQUEST"
-      ? `${scheduledPrefix}최초 요청 ${nextRadiusKm}km 실행 대기`
+      ? `다음 ${nextRadiusKm}km 확대 가능`
       : expansionReason === "MANUAL_REQUEST"
-        ? `${scheduledPrefix}수동 확대 · 다음 ${nextRadiusKm}km`
+        ? `현재 ${radiusKm}km 요청 완료 · 다음 ${nextRadiusKm}km`
         : expansionReason === "ALL_DECLINED" || expansionReason === "NO_CANDIDATES"
-          ? `${scheduledPrefix}즉시 확대 · 다음 ${nextRadiusKm}km`
-          : expansionReason === "RESPONSE_TIMEOUT"
-            ? `${scheduledPrefix}자동 확대 · 다음 ${nextRadiusKm}km`
-            : `다음 ${nextRadiusKm}km 확대 대기`
+          ? `현재 반경 회신 종료 · 다음 ${nextRadiusKm}km 확대 가능`
+          : `다음 ${nextRadiusKm}km 확대 가능`
     : matchingStatus === "ACCEPTED"
       ? "수용 가능 회신 확인"
       : matchingStatus === "EXHAUSTED"
@@ -261,7 +249,7 @@ export default function HospitalMatchMap({
       {status !== "ready" ? <div className={styles.mapFallback}>
         <MapPin /><strong>{status === "loading" ? "카카오 지도를 불러오는 중" : "지도를 표시할 수 없습니다"}</strong><small>병원별 거리·ETA와 회신 상태를 목록에서 확인하세요.</small>
       </div> : null}
-      <p className={styles.matchExpansionRule}>모두 수용 곤란이면 즉시 확대 · 미회신이 남으면 30초 후 자동 확대</p>
+      <p className={styles.matchExpansionRule}>요청 범위 확대 버튼을 누를 때마다 15 → 30 → 60 → 120km로 한 단계씩 확대</p>
       <footer><span><i data-status="REQUESTED" /> 요청 중</span><span><i data-status="VIEWED" /> 열람</span><span><i data-status="ACCEPTED" /> 수용 가능</span><span><i data-status="DECLINED" /> 수용 곤란</span></footer>
       {status === "unavailable" ? <div className={styles.mapFallbackList}>{markers.map((marker) => <span key={marker.id}><Hospital /> {marker.name}<b data-status={marker.status}>{label(marker.status)}</b></span>)}</div> : null}
     </section>

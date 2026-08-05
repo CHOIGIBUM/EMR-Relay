@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  decideExpansion,
   INITIAL_MATCHING_RADIUS_KM,
   MAX_MATCHING_RADIUS_KM,
   nextWaveRadius,
@@ -31,29 +30,6 @@ test("a new wave contains only hospitals newly entering the expanded annulus", (
   ];
   const selected = selectWaveCandidates(candidates, 30, new Set(), 3, 15);
   assert.deepEqual(selected.map((item) => item.hospital_id), ["H-NEW-1", "H-NEW-2"]);
-});
-
-test("all declines expand immediately while pending replies wait until the 30 second deadline", () => {
-  const nextExpansionAt = "2026-08-05T03:00:30.000Z";
-  assert.deepEqual(decideExpansion({
-    statuses: ["DECLINED", "DECLINED"],
-    nextExpansionAt,
-    now: new Date("2026-08-05T03:00:05.000Z"),
-  }), { action: "EXPAND", reason: "ALL_DECLINED" });
-  assert.deepEqual(decideExpansion({
-    statuses: ["DECLINED", "VIEWED"],
-    nextExpansionAt,
-    now: new Date("2026-08-05T03:00:05.000Z"),
-  }), { action: "WAIT", reason: "PENDING_RESPONSES", nextExpansionAt });
-  assert.deepEqual(decideExpansion({
-    statuses: ["DECLINED", "VIEWED"],
-    nextExpansionAt,
-    now: new Date("2026-08-05T03:00:31.000Z"),
-  }), { action: "EXPAND", reason: "RESPONSE_TIMEOUT" });
-  assert.deepEqual(decideExpansion({
-    statuses: ["ACCEPTED", "REQUESTED"],
-    nextExpansionAt,
-  }), { action: "STOP", reason: "ACCEPTED" });
 });
 
 test("expands gradually and never confirms a destination from the first YES", () => {
