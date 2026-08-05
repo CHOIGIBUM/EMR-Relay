@@ -3,6 +3,7 @@ import { nextWaveRadius } from "./matchingPolicy.js";
 import {
   getMatchJob,
   putMatchingState,
+  putMatchingStateIfNotAdvanced,
   putMatchJobIfAbsent,
   releaseMatchJobEnqueue,
   reserveMatchJobEnqueue,
@@ -86,19 +87,41 @@ export async function scheduleNextMatchingWave(
   const notBeforeAt = new Date(now.getTime() + delaySeconds * 1_000).toISOString();
   const nextWave = current.wave + 1;
   const proposed: MatchingJobRecord = {
-    ...current,
     jobId: `${current.rootRequestId}-W${nextWave}`,
+    rootRequestId: current.rootRequestId,
+    caseId: current.caseId,
     status: "QUEUED",
     wave: nextWave,
+    latitude: current.latitude,
+    longitude: current.longitude,
     previousRadiusKm: current.radiusKm,
     radiusKm: nextRadiusKm,
+    maxRadiusKm: current.maxRadiusKm,
     notBeforeAt,
     expansionReason: reason,
+    requestedBy: current.requestedBy,
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
   };
   const { job } = await putMatchJobIfAbsent(proposed);
   if (job.status !== "QUEUED") return job;
+
+  const queuedState: MatchingStateRecord = {
+    caseId: current.caseId,
+    rootRequestId: current.rootRequestId,
+    currentWave: current.wave,
+    currentRadiusKm: current.radiusKm,
+    maxRadiusKm: current.maxRadiusKm,
+    status: "EXPANSION_QUEUED",
+    nextRadiusKm,
+    nextExpansionAt: now.toISOString(),
+    expansionReason: reason,
+    updatedAt: now.toISOString(),
+  };
+  // Publish the authorization state before the zero-delay queue message can
+  // be consumed. This closes the race where a valid manual wave skipped itself.
+  await putMatchingState(queuedState);
+
   const channel = options.immediate ? "IMMEDIATE" : "DELAYED";
   const enqueueToken = await reserveMatchJobEnqueue(job, channel);
   if (!enqueueToken) return job;
@@ -106,20 +129,19 @@ export async function scheduleNextMatchingWave(
     await enqueueMatchingJob(job, delaySeconds);
   } catch (error) {
     await releaseMatchJobEnqueue(job, channel, enqueueToken);
+    await putMatchingState({
+      caseId: current.caseId,
+      rootRequestId: current.rootRequestId,
+      currentWave: current.wave,
+      currentRadiusKm: current.radiusKm,
+      maxRadiusKm: current.maxRadiusKm,
+      status: "WAITING_RESPONSES",
+      nextRadiusKm,
+      expansionReason: reason,
+      updatedAt: new Date().toISOString(),
+    });
     throw error;
   }
-  await putMatchingState({
-    caseId: current.caseId,
-    rootRequestId: current.rootRequestId,
-    currentWave: current.wave,
-    currentRadiusKm: current.radiusKm,
-    maxRadiusKm: current.maxRadiusKm,
-    status: options.immediate ? "EXPANSION_QUEUED" : "WAITING_RESPONSES",
-    nextRadiusKm,
-    nextExpansionAt: options.immediate ? now.toISOString() : job.notBeforeAt ?? notBeforeAt,
-    expansionReason: reason,
-    updatedAt: now.toISOString(),
-  });
   return job;
 }
 
@@ -130,7 +152,7 @@ export async function markMatchingAwaitingManualExpansion(
 ) {
   const nextRadiusKm = nextWaveRadius(current.radiusKm, current.maxRadiusKm);
   if (nextRadiusKm === null) {
-    await putMatchingState({
+    await putMatchingStateIfNotAdvanced({
       caseId: current.caseId,
       rootRequestId: current.rootRequestId,
       currentWave: current.wave,
@@ -142,7 +164,7 @@ export async function markMatchingAwaitingManualExpansion(
     });
     return;
   }
-  await putMatchingState({
+  await putMatchingStateIfNotAdvanced({
     caseId: current.caseId,
     rootRequestId: current.rootRequestId,
     currentWave: current.wave,

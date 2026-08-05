@@ -29,6 +29,13 @@ const matchingExpansionSk = (expansionId: string) => `MATCH_EXPANSION#${expansio
 const requestSk = (requestId: string) => `HOSPITAL_REQUEST#${requestId}`;
 const eventSk = (occurredAt: string, eventId: string) => `EVENT#${occurredAt}#${eventId}`;
 
+function isConditionalCheckFailed(error: unknown) {
+  return typeof error === "object"
+    && error !== null
+    && "name" in error
+    && error.name === "ConditionalCheckFailedException";
+}
+
 export type MatchingJobRecord = {
   jobId: string;
   rootRequestId: string;
@@ -229,10 +236,10 @@ export async function putMatchJob(job: MatchingJobRecord) {
   await client.send(new PutCommand({
     TableName: TABLE_NAME,
     Item: {
+      ...job,
       PK: casePk(job.caseId),
       SK: matchJobSk(job.rootRequestId, job.wave),
       entityType: "MATCH_JOB",
-      ...job,
       expiresAt: Math.floor(Date.now() / 1_000) + 86_400,
     },
     ConditionExpression: "attribute_not_exists(PK)",
@@ -244,7 +251,7 @@ export async function putMatchJobIfAbsent(job: MatchingJobRecord) {
     await putMatchJob(job);
     return { job, created: true } as const;
   } catch (error) {
-    if (!(error instanceof Error) || error.name !== "ConditionalCheckFailedException") throw error;
+    if (!isConditionalCheckFailed(error)) throw error;
     const existing = await getMatchJob(job.caseId, job.rootRequestId, job.wave);
     if (!existing) throw error;
     return { job: existing as MatchingJobRecord, created: false } as const;
@@ -278,7 +285,7 @@ export async function requeueFailedMatchJob(
     }));
     return result.Attributes as (MatchingJobRecord & Record<string, unknown>) | undefined;
   } catch (error) {
-    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return undefined;
+    if (isConditionalCheckFailed(error)) return undefined;
     throw error;
   }
 }
@@ -299,7 +306,7 @@ export async function claimMatchJob(caseId: string, requestId: string, wave: num
     }));
     return true;
   } catch (error) {
-    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return false;
+    if (isConditionalCheckFailed(error)) return false;
     throw error;
   }
 }
@@ -321,7 +328,7 @@ export async function releaseMatchJobClaim(caseId: string, requestId: string, wa
     }));
     return true;
   } catch (error) {
-    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return false;
+    if (isConditionalCheckFailed(error)) return false;
     throw error;
   }
 }
@@ -347,7 +354,7 @@ export async function reserveMatchJobEnqueue(
     }));
     return token;
   } catch (error) {
-    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return undefined;
+    if (isConditionalCheckFailed(error)) return undefined;
     throw error;
   }
 }
@@ -368,7 +375,7 @@ export async function releaseMatchJobEnqueue(
       ExpressionAttributeValues: { ":token": token, ":updatedAt": new Date().toISOString() },
     }));
   } catch (error) {
-    if (!(error instanceof Error) || error.name !== "ConditionalCheckFailedException") throw error;
+    if (!isConditionalCheckFailed(error)) throw error;
   }
 }
 
@@ -385,12 +392,60 @@ export async function putMatchingState(state: MatchingStateRecord) {
   await client.send(new PutCommand({
     TableName: TABLE_NAME,
     Item: {
+      ...state,
       PK: casePk(state.caseId),
       SK: MATCHING_STATE_SK,
       entityType: "MATCHING_STATE",
-      ...state,
     },
   }));
+}
+
+/**
+ * Persist a worker result only while it still belongs to the newest wave.
+ * A late hospital response or worker must never roll an already queued
+ * expansion (or an accepted match) back to WAITING_RESPONSES.
+ */
+export async function putMatchingStateIfNotAdvanced(state: MatchingStateRecord) {
+  try {
+    await client.send(new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        ...state,
+        PK: casePk(state.caseId),
+        SK: MATCHING_STATE_SK,
+        entityType: "MATCHING_STATE",
+      },
+      ConditionExpression: [
+        "attribute_not_exists(PK)",
+        "OR (",
+        "#rootRequestId = :rootRequestId",
+        "AND (",
+        "#currentWave < :currentWave",
+        "OR (",
+        "#currentWave = :currentWave",
+        "AND #status <> :expansionQueued",
+        "AND #status <> :accepted",
+        ")",
+        ")",
+        ")",
+      ].join(" "),
+      ExpressionAttributeNames: {
+        "#rootRequestId": "rootRequestId",
+        "#currentWave": "currentWave",
+        "#status": "status",
+      },
+      ExpressionAttributeValues: {
+        ":rootRequestId": state.rootRequestId,
+        ":currentWave": state.currentWave,
+        ":expansionQueued": "EXPANSION_QUEUED",
+        ":accepted": "ACCEPTED",
+      },
+    }));
+    return true;
+  } catch (error) {
+    if (isConditionalCheckFailed(error)) return false;
+    throw error;
+  }
 }
 
 export async function getMatchingExpansion(caseId: string, expansionId: string) {
@@ -421,7 +476,7 @@ export async function putMatchingExpansion(caseId: string, expansionId: string, 
     }));
     return true;
   } catch (error) {
-    if (error instanceof Error && error.name === "ConditionalCheckFailedException") return false;
+    if (isConditionalCheckFailed(error)) return false;
     throw error;
   }
 }

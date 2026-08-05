@@ -15,7 +15,6 @@ import {
   claimMatchJob,
   getHospitalReferenceCache,
   getMatchJob,
-  getMatchingState,
   markMatchJob,
   putHospitalReferenceCache,
   releaseMatchJobClaim,
@@ -116,14 +115,10 @@ async function processJob(message: MatchingJobRecord) {
   };
   if (stored.status === "COMPLETED") return;
   if (stored.status !== "QUEUED") return;
-  const queuedState = await getMatchingState(job.caseId);
   const initialRequestAuthorized = job.wave === 1
-    && queuedState?.status === "QUEUED"
-    && queuedState.nextRadiusKm === job.radiusKm;
+    && job.expansionReason === "INITIAL_REQUEST";
   const manualExpansionAuthorized = job.wave > 1
-    && queuedState?.status === "EXPANSION_QUEUED"
-    && queuedState.expansionReason === "MANUAL_REQUEST"
-    && queuedState.nextRadiusKm === job.radiusKm;
+    && job.expansionReason === "MANUAL_REQUEST";
   if (!initialRequestAuthorized && !manualExpansionAuthorized) {
     await markMatchJob(job.caseId, job.rootRequestId, job.wave, "SKIPPED", { skipReason: "MANUAL_EXPANSION_NOT_REQUESTED" });
     return;
