@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GraphQLEmsV2Api } from "../lib/v2/api.ts";
+import { GraphQLEmsV2Api, LocalEmsV2Api } from "../lib/v2/api.ts";
+import { createInitialV2Store } from "../lib/v2/fixtures.ts";
+import { DEMO_RESET_CONFIRMATION } from "../lib/v2/types.ts";
 
 const ENDPOINT = "https://example.appsync-api.ap-northeast-2.amazonaws.com/graphql";
 
@@ -35,6 +37,85 @@ test("binds the browser fetch receiver and avoids Chromium Illegal invocation", 
     assert.equal(calls, 1);
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("sends the authenticated demo reset through the AppSync mutation contract", async () => {
+  let requestBody;
+  const api = new GraphQLEmsV2Api({
+    endpoint: ENDPOINT,
+    fetchImpl: async (_input, init) => {
+      requestBody = JSON.parse(String(init?.body));
+      return graphQlResponse({
+        resetDemoCases: {
+          caseIds: ["GW-STROKE-001", "GW-STROKE-002", "GW-STROKE-003"],
+          deletedItems: 37,
+          restoredItems: 12,
+          resetAt: "2026-08-05T03:00:00.000Z",
+        },
+      });
+    },
+  });
+
+  const result = await api.resetDemoCases(DEMO_RESET_CONFIRMATION);
+  assert.equal(requestBody.operationName, "resetDemoCases");
+  assert.deepEqual(requestBody.variables, { input: { confirmation: DEMO_RESET_CONFIRMATION } });
+  assert.deepEqual(result.caseIds, ["GW-STROKE-001", "GW-STROKE-002", "GW-STROKE-003"]);
+  assert.equal(result.restoredItems, 12);
+});
+
+test("local demo reset preserves non-demo cases and their requests", async () => {
+  const previousWindow = globalThis.window;
+  const values = new Map();
+  const localStorage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage } });
+  try {
+    const store = createInitialV2Store();
+    const realCase = structuredClone(store.cases[0]);
+    realCase.id = "REAL-CASE-001";
+    realCase.code = "REAL-001";
+    store.cases.push(realCase);
+    store.requests.push(
+      {
+        id: "REQ-DEMO-OLD",
+        caseId: "GW-STROKE-001",
+        hospitalId: "A2200012",
+        wave: 1,
+        status: "ACCEPTED",
+        distanceKm: 2,
+        etaMinutes: 4,
+        requestedAt: "2026-08-05T01:00:00.000Z",
+      },
+      {
+        id: "REQ-REAL-KEEP",
+        caseId: "REAL-CASE-001",
+        hospitalId: "A2200012",
+        wave: 1,
+        status: "REQUESTED",
+        distanceKm: 3,
+        etaMinutes: 6,
+        requestedAt: "2026-08-05T01:00:00.000Z",
+      },
+    );
+    localStorage.setItem("ems-relay:v2:local-store", JSON.stringify(store));
+
+    const api = new LocalEmsV2Api();
+    await api.resetDemoCases(DEMO_RESET_CONFIRMATION);
+    const resetStore = await api.getStore();
+    assert.deepEqual(resetStore.cases.filter(({ id }) => id.startsWith("GW-STROKE-")).map(({ id }) => id), [
+      "GW-STROKE-001",
+      "GW-STROKE-002",
+      "GW-STROKE-003",
+    ]);
+    assert.ok(resetStore.cases.some(({ id }) => id === "REAL-CASE-001"));
+    assert.ok(resetStore.requests.some(({ id }) => id === "REQ-REAL-KEEP"));
+    assert.ok(!resetStore.requests.some(({ id }) => id === "REQ-DEMO-OLD"));
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else Object.defineProperty(globalThis, "window", { configurable: true, value: previousWindow });
   }
 });
 

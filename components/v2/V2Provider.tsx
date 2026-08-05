@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { useAuth } from "@/components/auth/AuthProvider";
 import { getV2Api, type EmsV2Api } from "@/lib/v2/api";
 import { createInitialV2Store } from "@/lib/v2/fixtures";
-import type { V2RealtimeScope, V2RealtimeStatus, V2Role, V2Store } from "@/lib/v2/types";
+import type { DemoResetResult, V2RealtimeScope, V2RealtimeStatus, V2Role, V2Store } from "@/lib/v2/types";
 
 type V2ContextValue = {
   api: EmsV2Api;
@@ -15,6 +15,7 @@ type V2ContextValue = {
   realtimeStatus: V2RealtimeStatus;
   refresh(): Promise<void>;
   run<T>(operation: () => Promise<T>): Promise<T>;
+  resetDemoCases(confirmation: string): Promise<DemoResetResult>;
 };
 
 const V2Context = createContext<V2ContextValue | null>(null);
@@ -133,9 +134,14 @@ export function V2Provider({ children, role, api: injectedApi }: { children: Rea
     }
   }, [refresh]);
 
+  const resetDemoCases = useCallback((confirmation: string) => {
+    if (role !== "paramedic") throw new Error("구급대원 계정에서만 시연 사건을 초기화할 수 있습니다.");
+    return run(() => api.resetDemoCases(confirmation));
+  }, [api, role, run]);
+
   const value = useMemo<V2ContextValue>(
-    () => ({ api, store, loading, pending, error, realtimeStatus, refresh, run }),
-    [api, error, loading, pending, realtimeStatus, refresh, run, store],
+    () => ({ api, store, loading, pending, error, realtimeStatus, refresh, run, resetDemoCases }),
+    [api, error, loading, pending, realtimeStatus, refresh, resetDemoCases, run, store],
   );
   return <V2Context.Provider value={value}>{children}</V2Context.Provider>;
 }

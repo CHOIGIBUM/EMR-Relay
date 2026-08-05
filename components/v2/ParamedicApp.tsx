@@ -22,8 +22,9 @@ import {
   X,
 } from "lucide-react";
 import KakaoRouteMap from "./KakaoRouteMap";
-import type { PatientAssessment, StrokeSide, SpeechFinding } from "@/lib/v2/types";
+import { DEMO_RESET_CONFIRMATION, type DispatchCase, type PatientAssessment, type StrokeSide, type SpeechFinding, type VoiceUpdateFocus } from "@/lib/v2/types";
 import { applyVoiceChangesToAssessment } from "@/lib/v2/voiceProposal";
+import { getDispatchRoute } from "@/lib/v2/dispatchRoutes";
 import Brand from "./Brand";
 import PatientCard from "./PatientCard";
 import PttInput from "./PttInput";
@@ -52,6 +53,26 @@ const choiceText = {
   unassessable: "평가 불가",
 } as const;
 
+const assessmentStepFields: ReadonlyArray<ReadonlyArray<keyof PatientAssessment>> = [
+  ["age", "sex", "airway", "breathing", "circulation", "avpu", "chiefComplaint"],
+  ["face", "arm", "speech"],
+  ["systolicBp", "diastolicBp", "pulse", "respiratoryRate", "spo2", "glucose", "lastKnownWell", "lastKnownWellBasis", "firstAbnormalTime", "measuredAt"],
+];
+
+const assessmentFieldLabels: Partial<Record<keyof PatientAssessment, string>> = {
+  age: "나이", sex: "성별", airway: "기도", breathing: "호흡", circulation: "순환", avpu: "의식 수준", chiefComplaint: "주호소",
+  face: "안면 마비", arm: "팔 떨어짐", speech: "언어 이상",
+  systolicBp: "수축기 혈압", diastolicBp: "이완기 혈압", pulse: "맥박", respiratoryRate: "호흡수", spo2: "SpO₂", glucose: "혈당",
+  lastKnownWell: "마지막 정상 확인", lastKnownWellBasis: "마지막 정상 확인 근거", firstAbnormalTime: "최초 이상 발견", measuredAt: "활력 측정 시각",
+};
+
+function missingAssessmentFields(draft: PatientAssessment, step: number) {
+  return (assessmentStepFields[step] ?? []).filter((field) => {
+    const value = draft[field];
+    return typeof value === "string" ? !value.trim() : value === undefined || value === null;
+  });
+}
+
 function Choice<T extends string>({ label, value, items, onChange }: { label: string; value?: T; items: Array<{ value: T; label: string }>; onChange(value: T): void }) {
   return (
     <fieldset className={styles.choice}>
@@ -66,36 +87,18 @@ function formatTime(value?: string) {
   return new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(value));
 }
 
-function normalizeClockInput(value: string) {
-  const digits = value.replace(/\D/g, "").slice(0, 4);
-  return digits.length > 2 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : digits;
-}
-
 function isClockTime(value?: string) {
   return Boolean(value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value));
 }
 
 function assessmentStepComplete(draft: PatientAssessment, step: number) {
-  if (step === 0) {
-    return Boolean(draft.age && draft.sex && draft.airway && draft.breathing && draft.circulation && draft.avpu && draft.chiefComplaint?.trim());
-  }
-  if (step === 1) return Boolean(draft.face && draft.arm && draft.speech);
-  return Boolean(
-    draft.systolicBp
-    && draft.diastolicBp
-    && draft.pulse
-    && draft.respiratoryRate
-    && draft.spo2
-    && draft.glucose
-    && isClockTime(draft.lastKnownWell)
-    && draft.lastKnownWellBasis?.trim()
-    && isClockTime(draft.firstAbnormalTime)
-    && isClockTime(draft.measuredAt),
-  );
+  if (missingAssessmentFields(draft, step).length) return false;
+  if (step !== 2) return true;
+  return Boolean(isClockTime(draft.lastKnownWell) && isClockTime(draft.firstAbnormalTime) && isClockTime(draft.measuredAt));
 }
 
 export default function ParamedicApp() {
-  const { api, store, loading, pending, error, run, refresh } = useV2();
+  const { api, store, loading, pending, error, run, refresh, resetDemoCases } = useV2();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [assessmentOpen, setAssessmentOpen] = useState(false);
   const [assessmentStep, setAssessmentStep] = useState(0);
@@ -116,6 +119,16 @@ export default function ParamedicApp() {
     setAssessmentStep(0);
     setAssessmentMaxStep(0);
     setValidation(null);
+    setMatchingRequestedId(null);
+  };
+
+  const openCase = (item: DispatchCase) => {
+    setSelectedId(item.id);
+    setDraft({ ...item.assessment });
+    setAssessmentOpen(item.stage === "patient-contact" || item.stage === "assessing");
+    setAssessmentStep(0);
+    setAssessmentMaxStep(item.stage === "assessing" ? 2 : 0);
+    setValidation(null);
   };
 
   const beginAssessment = () => {
@@ -131,6 +144,22 @@ export default function ParamedicApp() {
     try { await run(operation); } catch { /* V2Provider renders the message. */ }
   };
 
+  const contactAndAssess = async () => {
+    if (!incident) return;
+    try {
+      await run(() => api.contactPatient(incident.id));
+      beginAssessment();
+    } catch { /* V2Provider renders the message. */ }
+  };
+
+  const resetDemo = async () => {
+    if (!window.confirm("출동 사건 3건을 처음 상태로 되돌릴까요? 현재 입력과 병원 회신은 삭제됩니다.")) return;
+    try {
+      await resetDemoCases(DEMO_RESET_CONFIRMATION);
+      goHome();
+    } catch { /* V2Provider renders the message. */ }
+  };
+
   const beginMatching = async () => {
     if (!incident) return;
     setMatchingRequestedId(incident.id);
@@ -142,8 +171,17 @@ export default function ParamedicApp() {
   };
 
   const validateStep = (step = assessmentStep) => {
-    if (!assessmentStepComplete(draft, step)) {
-      setValidation("이 단계의 필수 항목을 모두 확인해 주세요.");
+    const missing = missingAssessmentFields(draft, step);
+    const invalidTimes = step === 2
+      ? [
+        draft.lastKnownWell && !isClockTime(draft.lastKnownWell) ? "마지막 정상 확인(HH:MM)" : null,
+        draft.firstAbnormalTime && !isClockTime(draft.firstAbnormalTime) ? "최초 이상 발견(HH:MM)" : null,
+        draft.measuredAt && !isClockTime(draft.measuredAt) ? "활력 측정 시각(HH:MM)" : null,
+      ].filter(Boolean) as string[]
+      : [];
+    const labels = [...missing.map((field) => assessmentFieldLabels[field] ?? field), ...invalidTimes];
+    if (labels.length) {
+      setValidation(`입력 필요: ${labels.join(", ")}`);
       return false;
     }
     setValidation(null);
@@ -161,14 +199,18 @@ export default function ParamedicApp() {
     const incompleteStep = [0, 1, 2].find((step) => !assessmentStepComplete(draft, step));
     if (incompleteStep !== undefined) {
       setAssessmentStep(incompleteStep);
-      setValidation("필수 항목이 비어 있습니다. 표시된 단계를 다시 확인해 주세요.");
+      validateStep(incompleteStep);
       return;
     }
-    await doRun(async () => {
-      await api.saveAssessment(incident.id, draft);
-      await api.confirmPatientCard(incident.id);
-    });
-    setAssessmentOpen(false);
+    try {
+      await run(async () => {
+        await api.saveAssessment(incident.id, draft);
+        await api.confirmPatientCard(incident.id);
+      });
+      setAssessmentOpen(false);
+    } catch (reason) {
+      setValidation(reason instanceof Error ? `저장 실패: ${reason.message}` : "저장하지 못했습니다. 입력값을 다시 확인해 주세요.");
+    }
   };
 
   if (error && !store) return (
@@ -191,7 +233,7 @@ export default function ParamedicApp() {
       <div className={styles.pageTitle}><div><small>현재 배정</small><h1>출동 사건 {store.cases.length}건</h1></div><button type="button" onClick={() => void refresh()} aria-label="새로고침"><RefreshCw /></button></div>
       <div className={styles.caseList}>
         {store.cases.map((item) => (
-          <button type="button" className={styles.caseCard} key={item.id} onClick={() => setSelectedId(item.id)}>
+          <button type="button" className={styles.caseCard} key={item.id} onClick={() => openCase(item)}>
             <div><strong>{item.code}</strong><span><Clock3 /> {item.reportTime}</span></div>
             <h2>{item.reportSummary}</h2>
             <p><MapPin /> {item.sceneAddress}</p>
@@ -214,15 +256,23 @@ export default function ParamedicApp() {
     if (!incident) return null;
     const enroute = incident.stage === "enroute";
     const arrived = incident.stage === "scene-arrived";
+    const dispatchRoute = getDispatchRoute(incident.id);
     return (
       <div className={styles.mobilePageAction}>
         {pageBar(enroute ? "현장 이동" : arrived ? "현장 도착" : "출동 준비")}
         <div className={styles.mobileScroll}>
           <section className={styles.dispatchBrief}>
-            <small>119 신고 내용</small><h2>{incident.reportSummary}</h2><p>{incident.reportDetail}</p>
-            <div><span><UserRound /> {incident.estimatedAge} · {incident.estimatedSex}</span><span>{incident.reporter}</span></div>
+            <div className={styles.dispatchId}><span>출동 사건</span><strong>{incident.code}</strong></div>
+            <h2>{incident.reportSummary}</h2>
+            {(incident.estimatedAge || incident.estimatedSex) ? <small className={styles.reportEstimate}>신고 단계 추정 · {incident.estimatedAge} {incident.estimatedSex} · 현장 미확인</small> : null}
+            <p><MapPin /> {incident.sceneAddress}</p>
+            <div className={styles.callerBrief}><span><UserRound /> 신고자 {incident.reporter}</span><span><Clock3 /> 접수 {incident.reportTime}</span></div>
           </section>
-          <section className={styles.locationCard}><MapPin /><div><small>현장</small><strong>{incident.sceneAddress}</strong><span>{incident.station} · {incident.dispatchUnit}</span></div><Navigation /></section>
+          {incident.stage !== "assigned" && dispatchRoute ? <section className={styles.dispatchRoute}>
+            <header><div><small>카카오 출동 경로</small><strong>{dispatchRoute.stationName} → 현장</strong></div><span>{dispatchRoute.etaMinutes}분 · {dispatchRoute.distanceKm.toFixed(1)}km</span></header>
+            <KakaoRouteMap origin={dispatchRoute.origin} destination={incident.scene} originName={dispatchRoute.stationName} destinationName={incident.sceneAddress} />
+            <p className={styles.dispatchOriginAddress}>{dispatchRoute.stationAddress}</p>
+          </section> : null}
           <div className={styles.progress}>
             {[
               ["신고 접수", true, incident.reportTime],
@@ -234,35 +284,36 @@ export default function ParamedicApp() {
         <div className={styles.stickyAction}>
           {incident.stage === "assigned" ? <button disabled={pending} onClick={() => void doRun(() => api.startDispatch(incident.id))}><Ambulance /> 출동 시작</button> : null}
           {incident.stage === "enroute" ? <button disabled={pending} onClick={() => void doRun(() => api.arriveScene(incident.id))}><MapPin /> 현장 도착</button> : null}
-          {incident.stage === "scene-arrived" ? <button disabled={pending} onClick={() => void doRun(() => api.contactPatient(incident.id))}><UserRound /> 환자 접촉</button> : null}
+          {incident.stage === "scene-arrived" ? <button disabled={pending} onClick={() => void contactAndAssess()}><UserRound /> 환자 접촉</button> : null}
         </div>
       </div>
     );
   };
 
-  const renderContact = () => incident ? (
-    <div className={styles.mobilePageAction}>
-      {pageBar("환자 접촉", () => setSelectedId(null))}
-      <div className={styles.mobileScroll}><section className={styles.confirmedMoment}><CheckCircle2 /><small>환자 접촉 기록</small><h1>{formatTime(incident.timeline.patientContactAt)}</h1><p>이제 현장에서 직접 확인한 환자 상태를 입력합니다.</p></section></div>
-      <div className={styles.stickyAction}><button onClick={beginAssessment}><Activity /> 환자 상태 입력</button></div>
-    </div>
-  ) : null;
-
   const renderAssessment = () => {
     if (!incident) return null;
     const update = <K extends keyof PatientAssessment>(field: K, value: PatientAssessment[K]) => setDraft((current) => ({ ...current, [field]: value }));
+    const voiceFocus: VoiceUpdateFocus = assessmentStep === 0 ? "BASIC" : assessmentStep === 1 ? "CPSS" : "VITALS";
     return (
       <div className={styles.mobilePageAction}>
         {pageBar("환자 상태 입력", () => { setAssessmentOpen(false); setValidation(null); })}
         <nav className={styles.assessmentNav}>{["기본", "CPSS", "활력·시간"].map((label, index) => <button key={label} type="button" disabled={index > assessmentMaxStep} data-active={assessmentStep === index} onClick={() => { setAssessmentStep(index); setValidation(null); }}><i>{index + 1}</i>{label}</button>)}</nav>
         <div className={styles.mobileScroll}>
+          <PttInput
+            key={`voice-step-${assessmentStep}`}
+            caseId={incident.id}
+            value={draft.voiceNote ?? ""}
+            focus={voiceFocus}
+            onChange={(value) => update("voiceNote", value)}
+            onApply={(changes) => setDraft((current) => applyVoiceChangesToAssessment(current, changes))}
+          />
           {assessmentStep === 0 ? <section className={styles.formSection}>
             <h2>환자 기본 확인</h2>
-            <WheelPicker label="나이" value={draft.age} min={1} max={110} unit="세" onChange={(value) => update("age", value)} />
+            <WheelPicker label="나이" value={draft.age} min={0} max={130} unit="세" onChange={(value) => update("age", value)} />
             <Choice label="성별" value={draft.sex} items={[{ value: "female", label: "여성" }, { value: "male", label: "남성" }, { value: "unknown", label: "미상" }]} onChange={(value) => update("sex", value)} />
-            <Choice label="기도" value={draft.airway} items={[{ value: "patent", label: "유지" }, { value: "at-risk", label: "위험" }, { value: "obstructed", label: "폐쇄" }]} onChange={(value) => update("airway", value)} />
-            <Choice label="호흡" value={draft.breathing} items={[{ value: "adequate", label: "적절" }, { value: "labored", label: "곤란" }, { value: "inadequate", label: "부적절" }]} onChange={(value) => update("breathing", value)} />
-            <Choice label="순환" value={draft.circulation} items={[{ value: "stable", label: "안정" }, { value: "poor-perfusion", label: "관류 저하" }, { value: "arrest", label: "심정지" }]} onChange={(value) => update("circulation", value)} />
+            <Choice label="기도" value={draft.airway} items={[{ value: "patent", label: "개방" }, { value: "at-risk", label: "확보 필요" }]} onChange={(value) => update("airway", value)} />
+            <Choice label="호흡" value={draft.breathing} items={[{ value: "adequate", label: "자발호흡" }, { value: "inadequate", label: "호흡 이상" }]} onChange={(value) => update("breathing", value)} />
+            <Choice label="순환" value={draft.circulation} items={[{ value: "stable", label: "맥박 촉지" }, { value: "poor-perfusion", label: "순환 불안정" }]} onChange={(value) => update("circulation", value)} />
             <Choice label="의식 수준(AVPU)" value={draft.avpu} items={[{ value: "A", label: "A 명료" }, { value: "V", label: "V 음성" }, { value: "P", label: "P 통증" }, { value: "U", label: "U 무반응" }]} onChange={(value) => update("avpu", value)} />
             <label className={styles.textInput}><span>주호소</span><textarea rows={3} value={draft.chiefComplaint ?? ""} onChange={(event) => update("chiefComplaint", event.target.value)} placeholder="환자에게서 직접 확인한 증상" /></label>
           </section> : null}
@@ -275,29 +326,23 @@ export default function ParamedicApp() {
           {assessmentStep === 2 ? <section className={styles.formSection}>
             <h2>활력징후와 시간</h2>
             <div className={styles.wheelGrid}>
-              <WheelPicker label="수축기 혈압" value={draft.systolicBp} min={60} max={260} unit="mmHg" onChange={(value) => update("systolicBp", value)} />
-              <WheelPicker label="이완기 혈압" value={draft.diastolicBp} min={30} max={160} unit="mmHg" onChange={(value) => update("diastolicBp", value)} />
-              <WheelPicker label="맥박" value={draft.pulse} min={20} max={220} unit="회/분" onChange={(value) => update("pulse", value)} />
-              <WheelPicker label="호흡수" value={draft.respiratoryRate} min={4} max={60} unit="회/분" onChange={(value) => update("respiratoryRate", value)} />
-              <WheelPicker label="SpO₂" value={draft.spo2} min={50} max={100} unit="%" onChange={(value) => update("spo2", value)} />
-              <WheelPicker label="혈당" value={draft.glucose} min={20} max={500} unit="mg/dL" onChange={(value) => update("glucose", value)} />
+              <WheelPicker label="수축기 혈압" value={draft.systolicBp} min={20} max={300} unit="mmHg" onChange={(value) => update("systolicBp", value)} />
+              <WheelPicker label="이완기 혈압" value={draft.diastolicBp} min={10} max={200} unit="mmHg" onChange={(value) => update("diastolicBp", value)} />
+              <WheelPicker label="맥박" value={draft.pulse} min={0} max={300} unit="회/분" onChange={(value) => update("pulse", value)} />
+              <WheelPicker label="호흡수" value={draft.respiratoryRate} min={0} max={100} unit="회/분" onChange={(value) => update("respiratoryRate", value)} />
+              <WheelPicker label="SpO₂" value={draft.spo2} min={0} max={100} unit="%" onChange={(value) => update("spo2", value)} />
+              <WheelPicker label="혈당" value={draft.glucose} min={10} max={1000} unit="mg/dL" onChange={(value) => update("glucose", value)} />
             </div>
             {draft.glucose !== undefined && draft.glucose < 60 ? <div className={styles.warning}><AlertTriangle /><span><strong>혈당 60 mg/dL 미만</strong>저혈당 처치 후 신경학적 상태를 다시 확인하세요.</span></div> : null}
             <div className={styles.timeInputs}>
-              <label>마지막 정상 확인<input inputMode="numeric" maxLength={5} placeholder="HH:MM" value={draft.lastKnownWell ?? ""} onChange={(event) => update("lastKnownWell", normalizeClockInput(event.target.value))} /></label>
+              <label>마지막 정상 확인<input type="time" value={draft.lastKnownWell ?? ""} onChange={(event) => update("lastKnownWell", event.target.value)} /></label>
               <label>마지막 정상 확인 근거<input value={draft.lastKnownWellBasis ?? ""} onChange={(event) => update("lastKnownWellBasis", event.target.value)} placeholder="보호자 목격·통화 등" /></label>
-              <label>최초 이상 발견<input inputMode="numeric" maxLength={5} placeholder="HH:MM" value={draft.firstAbnormalTime ?? ""} onChange={(event) => update("firstAbnormalTime", normalizeClockInput(event.target.value))} /></label>
-              <label>활력 측정 시각<input inputMode="numeric" maxLength={5} placeholder="HH:MM" value={draft.measuredAt ?? ""} onChange={(event) => update("measuredAt", normalizeClockInput(event.target.value))} /></label>
+              <label>최초 이상 발견<input type="time" value={draft.firstAbnormalTime ?? ""} onChange={(event) => update("firstAbnormalTime", event.target.value)} /></label>
+              <label>활력 측정 시각<input type="time" value={draft.measuredAt ?? ""} onChange={(event) => update("measuredAt", event.target.value)} /></label>
             </div>
-            <PttInput
-              caseId={incident.id}
-              value={draft.voiceNote ?? ""}
-              onChange={(value) => update("voiceNote", value)}
-              onApply={(changes) => setDraft((current) => applyVoiceChangesToAssessment(current, changes))}
-            />
           </section> : null}
-          {validation ? <p className={styles.formError} role="alert">{validation}</p> : null}
         </div>
+        {validation ? <p className={styles.stickyFormError} role="alert">{validation}</p> : null}
         <div className={styles.stickyAction}><button disabled={pending} onClick={() => void nextAssessment()}>{assessmentStep < 2 ? <>다음 확인 <ChevronRight /></> : <>환자 카드 확정 <Check /></>}</button></div>
       </div>
     );
@@ -370,7 +415,7 @@ export default function ParamedicApp() {
   const content = !incident ? renderCaseList()
     : assessmentOpen || incident.stage === "assessing" ? renderAssessment()
       : ["assigned", "enroute", "scene-arrived"].includes(incident.stage) ? renderDispatch()
-        : incident.stage === "patient-contact" ? renderContact()
+        : incident.stage === "patient-contact" ? renderAssessment()
           : incident.stage === "card-confirmed" ? renderCard()
             : incident.stage === "matching" || matchingRequestedId === incident.id ? renderMatching()
               : ["destination-selected", "transporting"].includes(incident.stage) ? renderRoute()
@@ -379,7 +424,7 @@ export default function ParamedicApp() {
   return (
     <main className={styles.mobileShell}>
       <div className={styles.mobileApp}>
-        <Brand mobile subtitle={incident?.code ?? "구급대원"} onHome={goHome} />
+        <Brand mobile subtitle={incident?.code ?? "구급대원"} onHome={goHome} onDemoReset={() => void resetDemo()} resetPending={pending} />
         {error ? <div className={styles.globalError} role="alert"><AlertTriangle /> {error}</div> : null}
         {content}
       </div>

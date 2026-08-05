@@ -90,11 +90,13 @@ test("v2 schema exposes only the two-user workflow contracts and subscriptions",
     "requestHospitalMatching",
     "createTranscribeSession",
     "structureVoiceUpdate",
+    "resetDemoCases",
     "onCaseUpdate",
     "onHospitalInbox",
   ]) assert.match(schema, new RegExp(`\\b${field}\\b`));
   assert.match(schema, /onCaseUpdate[\s\S]*cognito_groups: \["paramedic"\]/);
   assert.match(schema, /onHospitalInbox[\s\S]*cognito_groups: \["hospital"\]/);
+  assert.match(schema, /resetDemoCases[\s\S]*cognito_groups: \["paramedic"\]/);
   assert.match(schema, /type CaseUpdate\s+@aws_cognito_user_pools\s+@aws_iam/);
   for (const field of [
     "reportTime",
@@ -109,6 +111,13 @@ test("v2 schema exposes only the two-user workflow contracts and subscriptions",
     "sceneLongitude",
   ]) assert.match(schema, new RegExp(`\\b${field}\\b`));
   assert.doesNotMatch(schema, /HealthLake|Kinesis|FHIR|Report|Control/);
+});
+
+test("demo reset is authenticated in the Lambda handler as a paramedic-only operation", () => {
+  const source = readFileSync(join(process.cwd(), "src", "v2", "appsyncHandler.ts"), "utf8");
+  assert.match(source, /async function resetDemoCases[\s\S]*requireRole\(principal, "paramedic"\)/);
+  assert.match(source, /assertDemoResetConfirmation/);
+  assert.match(source, /case "resetDemoCases": return resetDemoCases\(event\)/);
 });
 
 test("events after destination selection remain visible to the selected hospital subscription", () => {
@@ -134,6 +143,7 @@ test("v2 infrastructure keeps only paramedic and hospital groups and exports dep
   assert.match(template, /GroupName: hospital/);
   assert.match(template, /SQSPollerPolicy/);
   assert.match(template, /VoiceFunction:/);
+  assert.match(template, /^          resetDemoCases:/m);
   assert.match(template, /VOICE_AGENT_TIMEOUT_MS: "8000"/);
   assert.match(template, /transcribe:StartStreamTranscriptionWebSocket/);
   assert.match(template, /bedrock:InvokeModel/);
@@ -157,4 +167,6 @@ test("v2 seed contains three stroke demo cases and the expanded dispatch metadat
   for (const field of ["reportTime", "reportSummary", "reportDetail", "sceneLatitude", "sceneLongitude"]) {
     assert.match(seed, new RegExp(`\\b${field}\\b`));
   }
+  assert.match(seed, /seed\.caseId\.replace\("GW-STROKE", "EMS Relay"\)/);
+  assert.doesNotMatch(seed, /119 신고 내용으로 생성된/);
 });

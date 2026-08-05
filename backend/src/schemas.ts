@@ -77,6 +77,71 @@ function isProposalValue(value: unknown): value is ProposalValue {
   return Array.isArray(value) && value.length <= 20 && value.every((entry) => typeof entry === "string");
 }
 
+const MODEL_NUMERIC_PATHS = new Set<FactPath>([
+  "patient.age",
+  "assessment.cpss.score",
+  "vitals.systolicBp",
+  "vitals.diastolicBp",
+  "vitals.pulse",
+  "vitals.respiratoryRate",
+  "vitals.spo2",
+  "vitals.temperature",
+  "vitals.glucose",
+]);
+
+const MODEL_TEXT_PATHS = new Set<FactPath>([
+  "symptoms.chiefComplaint",
+  "symptoms.lastKnownNormalBasis",
+]);
+
+const MODEL_ENUM_ALIASES: Partial<Record<FactPath, Readonly<Record<string, string>>>> = {
+  "patient.sex": {
+    "남": "남성", "남성": "남성", "남자": "남성", "male": "남성", "m": "남성",
+    "여": "여성", "여성": "여성", "여자": "여성", "female": "여성", "f": "여성",
+    "미상": "미상", "unknown": "미상", "unspecified": "미상",
+  },
+  "assessment.airway": {
+    "개방": "개방", "patent": "개방", "open": "개방",
+    "확보 필요": "확보 필요", "at-risk": "확보 필요", "at risk": "확보 필요", "needs securing": "확보 필요",
+  },
+  "assessment.breathing": {
+    "자발호흡": "자발호흡", "adequate": "자발호흡", "spontaneous": "자발호흡", "spontaneous breathing": "자발호흡",
+    "호흡 이상": "호흡 이상", "inadequate": "호흡 이상", "abnormal": "호흡 이상", "labored": "호흡 이상", "distressed": "호흡 이상",
+  },
+  "assessment.circulation": {
+    "맥박 촉지": "맥박 촉지", "stable": "맥박 촉지", "palpable pulse": "맥박 촉지", "pulse palpable": "맥박 촉지",
+    "순환 불안정": "순환 불안정", "poor-perfusion": "순환 불안정", "poor perfusion": "순환 불안정", "unstable": "순환 불안정",
+  },
+  "assessment.cpss.face": {
+    "정상": "정상", "normal": "정상", "좌측 이상": "좌측 이상", "left": "좌측 이상", "left abnormal": "좌측 이상",
+    "우측 이상": "우측 이상", "right": "우측 이상", "right abnormal": "우측 이상", "평가 불가": "평가 불가", "unassessable": "평가 불가",
+  },
+  "assessment.cpss.arm": {
+    "정상": "정상", "normal": "정상", "좌측 이상": "좌측 이상", "left": "좌측 이상", "left abnormal": "좌측 이상",
+    "우측 이상": "우측 이상", "right": "우측 이상", "right abnormal": "우측 이상", "평가 불가": "평가 불가", "unassessable": "평가 불가",
+  },
+  "assessment.cpss.speech": {
+    "정상": "정상", "normal": "정상", "구음장애": "구음장애", "dysarthria": "구음장애",
+    "실어증": "실어증", "aphasia": "실어증", "평가 불가": "평가 불가", "unassessable": "평가 불가",
+  },
+};
+
+function normalizeModelProposalValue(path: unknown, value: ProposalValue): ProposalValue {
+  if (typeof path !== "string" || !FACT_PATHS.has(path)) return value;
+  const factPath = path as FactPath;
+  if (MODEL_TEXT_PATHS.has(factPath) && Array.isArray(value)) {
+    return value.map((entry) => entry.trim()).filter(Boolean).join(", ");
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (MODEL_NUMERIC_PATHS.has(factPath) && /^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
+    if (["consciousness.avpu", "reassessment.avpu"].includes(factPath) && /^[avpu]$/i.test(trimmed)) return trimmed.toUpperCase();
+    const alias = MODEL_ENUM_ALIASES[factPath]?.[trimmed.toLowerCase().replaceAll("_", "-").replace(/\s+/g, " ")];
+    if (alias) return alias;
+  }
+  return value;
+}
+
 /**
  * Some tool-capable models occasionally wrap a scalar proposal as
  * `{ value: <scalar>, unit?: <string> }` even though the schema defines
@@ -89,16 +154,24 @@ export function normalizeAgentModelCandidate(value: unknown): unknown {
 
   let changed = false;
   const changes = value.changes.map((entry) => {
-    if (!isRecord(entry) || !isRecord(entry.value)) return entry;
-
-    const wrapper = entry.value;
-    const keys = Object.keys(wrapper);
-    if (!keys.every((key) => key === "value" || key === "unit") || !isProposalValue(wrapper.value)) return entry;
-    if (wrapper.unit !== undefined && typeof wrapper.unit !== "string") return entry;
-
-    changed = true;
-    const normalized: Record<string, unknown> = { ...entry, value: wrapper.value };
-    if (normalized.unit === undefined && typeof wrapper.unit === "string") normalized.unit = wrapper.unit;
+    if (!isRecord(entry)) return entry;
+    const normalized: Record<string, unknown> = { ...entry };
+    if (isRecord(entry.value)) {
+      const wrapper = entry.value;
+      const keys = Object.keys(wrapper);
+      if (!keys.every((key) => key === "value" || key === "unit") || !isProposalValue(wrapper.value)) return entry;
+      if (wrapper.unit !== undefined && typeof wrapper.unit !== "string") return entry;
+      changed = true;
+      normalized.value = wrapper.value;
+      if (normalized.unit === undefined && typeof wrapper.unit === "string") normalized.unit = wrapper.unit;
+    }
+    if (isProposalValue(normalized.value)) {
+      const canonicalValue = normalizeModelProposalValue(normalized.path, normalized.value);
+      if (canonicalValue !== normalized.value) {
+        changed = true;
+        normalized.value = canonicalValue;
+      }
+    }
     return normalized;
   });
 

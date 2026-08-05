@@ -5,7 +5,9 @@ import { createInitialV2Store } from "./fixtures";
 import {
   assessmentComplete,
   cpssScore,
+  DEMO_RESET_CONFIRMATION,
   type Avpu,
+  type DemoResetResult,
   type DispatchCase,
   type Hospital,
   type HospitalDecision,
@@ -53,6 +55,7 @@ export interface EmsV2Api {
   arriveHospital(caseId: string): Promise<DispatchCase>;
   createTranscribeSession(caseId: string): Promise<TranscribeSession>;
   structureVoiceUpdate(caseId: string, transcript: string, focus?: VoiceUpdateFocus): Promise<VoiceProposal>;
+  resetDemoCases(confirmation: string): Promise<DemoResetResult>;
 }
 
 const STORAGE_KEY = "ems-relay:v2:local-store";
@@ -247,6 +250,25 @@ export class LocalEmsV2Api implements EmsV2Api {
 
   async structureVoiceUpdate(caseId: string, transcript: string) {
     return localVoiceProposal(caseId, transcript);
+  }
+
+  async resetDemoCases(confirmation: string) {
+    if (confirmation !== DEMO_RESET_CONFIRMATION) {
+      throw new Error(`시연 초기화를 실행하려면 확인 문구 ${DEMO_RESET_CONFIRMATION}를 정확히 입력하세요.`);
+    }
+    const fresh = createInitialV2Store();
+    const caseIds = fresh.cases.map((incident) => incident.id);
+    const demoIds = new Set(caseIds);
+    const resetAt = now();
+    return this.mutate((store) => {
+      const deletedItems = store.cases.filter((incident) => demoIds.has(incident.id)).length
+        + store.requests.filter((request) => demoIds.has(request.caseId)).length
+        + store.routes.filter((route) => demoIds.has(route.caseId)).length;
+      store.cases = [...store.cases.filter((incident) => !demoIds.has(incident.id)), ...fresh.cases];
+      store.requests = store.requests.filter((request) => !demoIds.has(request.caseId));
+      store.routes = [...store.routes.filter((route) => !demoIds.has(route.caseId)), ...fresh.routes];
+      return { caseIds, deletedItems, restoredItems: fresh.cases.length, resetAt };
+    });
   }
 
   private read(): V2Store {
@@ -1034,6 +1056,14 @@ export class GraphQLEmsV2Api implements EmsV2Api {
       changes: parseJson<VoiceProposalChange[]>(raw.changes, []),
       flags: parseJson<VoiceProposal["flags"]>(raw.flags, []),
     };
+  }
+
+  resetDemoCases(confirmation: string) {
+    return this.request<DemoResetResult>(
+      `mutation resetDemoCases($input: DemoResetInput!) { resetDemoCases(input: $input) { caseIds deletedItems restoredItems resetAt } }`,
+      { input: { confirmation } },
+      "resetDemoCases",
+    );
   }
 
   private getRawCase(caseId: string) {

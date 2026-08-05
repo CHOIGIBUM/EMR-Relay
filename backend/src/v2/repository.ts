@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
+  BatchWriteCommand,
   DynamoDBDocumentClient,
   GetCommand,
   PutCommand,
@@ -9,6 +10,12 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { CaseMeta, ConfirmedState, HospitalRequest } from "../types.js";
+import {
+  resetDemoCases,
+  type DemoResetItem,
+  type DemoResetKey,
+  type DemoResetStorage,
+} from "./demoReset.js";
 
 const TABLE_NAME = process.env.TABLE_NAME || "ems-relay-v2-local";
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -37,6 +44,62 @@ export type MatchingJobRecord = {
 };
 
 export type HospitalReferenceDirectory = Awaited<ReturnType<typeof import("../external/hospitalReferenceService.js").getHospitalReferences>>;
+
+const demoResetStorage: DemoResetStorage = {
+  async listPartitionKeys(partitionKey) {
+    const keys: DemoResetKey[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const page = await client.send(new QueryCommand({
+        TableName: TABLE_NAME,
+        KeyConditionExpression: "PK = :pk",
+        ExpressionAttributeValues: { ":pk": partitionKey },
+        ProjectionExpression: "PK, SK",
+        ConsistentRead: true,
+        ...(exclusiveStartKey ? { ExclusiveStartKey: exclusiveStartKey } : {}),
+      }));
+      for (const item of page.Items ?? []) {
+        if (typeof item.PK === "string" && typeof item.SK === "string") keys.push({ PK: item.PK, SK: item.SK });
+      }
+      exclusiveStartKey = page.LastEvaluatedKey;
+    } while (exclusiveStartKey);
+    return keys;
+  },
+
+  async deleteKeys(keys) {
+    for (let offset = 0; offset < keys.length; offset += 25) {
+      let pending = keys.slice(offset, offset + 25).map((Key) => ({ DeleteRequest: { Key } }));
+      for (let attempt = 0; pending.length; attempt += 1) {
+        if (attempt >= 8) throw new Error("시연 사건 레코드 삭제를 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
+        const response = await client.send(new BatchWriteCommand({ RequestItems: { [TABLE_NAME]: pending } }));
+        pending = (response.UnprocessedItems?.[TABLE_NAME] ?? []).flatMap((request) => {
+          const PK = request.DeleteRequest?.Key?.PK;
+          const SK = request.DeleteRequest?.Key?.SK;
+          return typeof PK === "string" && typeof SK === "string"
+            ? [{ DeleteRequest: { Key: { PK, SK } } }]
+            : [];
+        });
+        if (pending.length) await new Promise((resolve) => setTimeout(resolve, Math.min(500, 50 * (attempt + 1))));
+      }
+    }
+  },
+
+  async putItems(items: DemoResetItem[]) {
+    await client.send(new TransactWriteCommand({
+      TransactItems: items.map((Item) => ({
+        Put: {
+          TableName: TABLE_NAME,
+          Item,
+          ConditionExpression: "attribute_not_exists(PK)",
+        },
+      })),
+    }));
+  },
+};
+
+export function resetDemoCasesForParamedic(paramedicSub: string, baseTime = Date.now()) {
+  return resetDemoCases(demoResetStorage, paramedicSub, baseTime);
+}
 
 export async function listCasesForParamedic(paramedicSub: string) {
   const result = await client.send(new QueryCommand({

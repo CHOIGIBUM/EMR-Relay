@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { completedInitialAssessmentSteps, missingInitialAssessmentPaths } from "../src/assessmentContract.js";
 import { authorizeCommand } from "../src/auth.js";
-import { validateAgentModelOutput, validateDirectFactsRequest } from "../src/schemas.js";
+import { normalizeAgentModelCandidate, validateAgentModelOutput, validateDirectFactsRequest } from "../src/schemas.js";
 import type { AuthPrincipal, ConfirmedState, FactPath, ProposalValue } from "../src/types.js";
 import { INITIAL_ASSESSMENT_REQUIRED_PATHS_BY_STEP } from "../src/types.js";
 import { validateCaseCommand, validateTranscribeSession } from "../src/workflowSchemas.js";
@@ -148,4 +148,33 @@ test("rejects an out-of-scope AI proposal", () => {
     }],
     flags: [],
   }).ok, false);
+});
+
+test("normalizes equivalent model enum aliases before strict clinical validation", () => {
+  const normalized = normalizeAgentModelCandidate({
+    schemaVersion: "1.0",
+    summary: "명시된 기본 상태를 정리했습니다.",
+    changes: [
+      { path: "patient.age", value: "74", certainty: "clear", sourceText: "74세" },
+      { path: "patient.sex", value: "male", certainty: "clear", sourceText: "남성" },
+      { path: "assessment.airway", value: "patent", certainty: "clear", sourceText: "기도 개방" },
+      { path: "assessment.breathing", value: "spontaneous", certainty: "clear", sourceText: "자발호흡" },
+      { path: "assessment.circulation", value: "palpable pulse", certainty: "clear", sourceText: "맥박 촉지" },
+      { path: "consciousness.avpu", value: "v", certainty: "clear", sourceText: "의식은 V" },
+      { path: "symptoms.chiefComplaint", value: ["말이 어눌함", "오른팔 약화"], certainty: "clear", sourceText: "말이 어눌하고 오른팔에 힘이 빠짐" },
+    ],
+    flags: [],
+  });
+  const validation = validateAgentModelOutput(normalized);
+  assert.equal(validation.ok, true);
+  if (!validation.ok) return;
+  assert.deepEqual(validation.value.changes.map(({ path, value }) => [path, value]), [
+    ["patient.age", 74],
+    ["patient.sex", "남성"],
+    ["assessment.airway", "개방"],
+    ["assessment.breathing", "자발호흡"],
+    ["assessment.circulation", "맥박 촉지"],
+    ["consciousness.avpu", "V"],
+    ["symptoms.chiefComplaint", "말이 어눌함, 오른팔 약화"],
+  ]);
 });

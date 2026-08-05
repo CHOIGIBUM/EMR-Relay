@@ -21,8 +21,10 @@ import {
   putMatchJob,
   syncCaseAssignmentIndexes,
   syncHospitalRequestIndex,
+  resetDemoCasesForParamedic,
   type MatchingJobRecord,
 } from "./repository.js";
+import { assertDemoResetConfirmation } from "./demoReset.js";
 
 const MATCHING_QUEUE_URL = process.env.MATCHING_QUEUE_URL || "";
 const sqs = new SQSClient({});
@@ -65,6 +67,15 @@ async function listMyCases(event: ResolverEvent) {
   const principal = principalFromAppSyncIdentity(event.identity);
   requireRole(principal, "paramedic");
   return listCasesForParamedic(principal.sub);
+}
+
+async function resetDemoCases(event: ResolverEvent) {
+  const principal = principalFromAppSyncIdentity(event.identity);
+  requireRole(principal, "paramedic");
+  const input = event.arguments?.input;
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new Error("input은 객체여야 합니다.");
+  assertDemoResetConfirmation((input as Record<string, unknown>).confirmation);
+  return resetDemoCasesForParamedic(principal.sub);
 }
 
 async function getCaseSnapshot(event: ResolverEvent) {
@@ -259,6 +270,7 @@ export async function handler(event: ResolverEvent) {
     case "listHospitalInbox": return listHospitalInbox(event);
     case "executeCommand": return executeCommand(event);
     case "requestHospitalMatching": return requestHospitalMatching(event);
+    case "resetDemoCases": return resetDemoCases(event);
     case "onCaseUpdate": return authorizeCaseSubscription(event);
     case "onHospitalInbox": return authorizeHospitalSubscription(event);
     case "publishCaseUpdate":

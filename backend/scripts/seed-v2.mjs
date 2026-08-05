@@ -93,7 +93,7 @@ for (const [index, seed] of cases.entries()) {
     scenario: seed.scenario,
     reportTime: occurredAt,
     reportSummary: seed.scenario,
-    reportDetail: "119 신고 내용으로 생성된 출동 정보이며 환자 상태는 현장 접촉 후 확인합니다.",
+    reportDetail: `${seed.caseId.replace("GW-STROKE", "EMS Relay")} · ${seed.estimatedAgeBand} · 성별 ${seed.estimatedSex} · ${seed.reporter} 신고`,
     estimatedAge: seed.estimatedAgeBand,
     estimatedSex: seed.estimatedSex,
     reporter: seed.reporter,

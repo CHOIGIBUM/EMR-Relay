@@ -109,6 +109,10 @@ async function publishWaveResultSafely(
   }
 }
 
+export function isMatchingStageEligible(stage: string) {
+  return stage === "ASSESSING" || stage === "HOSPITAL_REQUESTED";
+}
+
 async function processJob(message: MatchingJobRecord) {
   const stored = await getMatchJob(message.caseId, message.rootRequestId, message.wave);
   if (!stored || stored.status === "SKIPPED") return;
@@ -128,23 +132,22 @@ async function processJob(message: MatchingJobRecord) {
   };
   if (stored.status === "COMPLETED") {
     const [meta, workflow] = await Promise.all([getCaseMeta(job.caseId), getWorkflowCase(job.caseId)]);
-    if (!meta) return;
+    if (!meta || !isMatchingStageEligible(meta.stage)) return;
     const requests = workflow.hospitalRequests.filter((request) => request.broadcastId === `${job.rootRequestId}-W${job.wave}`);
     await publishWaveResultSafely(job, meta, requests);
     await enqueueNextWave(job);
     return;
   }
-  await markMatchJob(job.caseId, job.rootRequestId, job.wave, "PROCESSING");
-
   const [meta, workflow, confirmedState] = await Promise.all([
     getCaseMeta(job.caseId),
     getWorkflowCase(job.caseId),
     getConfirmedState(job.caseId),
   ]);
-  if (!meta) {
-    await markMatchJob(job.caseId, job.rootRequestId, job.wave, "FAILED", { errorCode: "CASE_NOT_FOUND" });
-    return;
-  }
+  if (!meta) return;
+  // A queued message may outlive a demo reset. Never recreate requests for a
+  // freshly reset ASSIGNED case (or for any case outside the matching stages).
+  if (!isMatchingStageEligible(meta.stage)) return;
+  await markMatchJob(job.caseId, job.rootRequestId, job.wave, "PROCESSING");
   const acceptedRequestCount = workflow.hospitalRequests.filter((request) => request.status === "ACCEPTED").length;
   if (shouldStopExpansion({
     ...(meta.destinationHospitalId ? { destinationHospitalId: meta.destinationHospitalId } : {}),

@@ -21,8 +21,9 @@ export default function WheelPicker({ label, value, min, max, step = 1, unit, on
   }, [max, min, step]);
 
   useEffect(() => {
-    if (value === undefined || !ref.current) return;
-    const index = Math.max(0, values.indexOf(value));
+    if (!ref.current) return;
+    const valueIndex = value === undefined ? -1 : values.indexOf(value);
+    const index = valueIndex < 0 ? 0 : valueIndex + 1;
     ref.current.scrollTo({ top: index * 42, behavior: "instant" });
   }, [value, values]);
 
@@ -34,19 +35,21 @@ export default function WheelPicker({ label, value, min, max, step = 1, unit, on
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => {
       if (!ref.current) return;
-      const index = Math.max(0, Math.min(values.length - 1, Math.round(ref.current.scrollTop / 42)));
+      const index = Math.max(0, Math.min(values.length, Math.round(ref.current.scrollTop / 42)));
       ref.current.scrollTo({ top: index * 42, behavior: "smooth" });
-      if (values[index] !== value) onChange(values[index]);
+      const selected = index === 0 ? undefined : values[index - 1];
+      if (selected !== undefined && selected !== value) onChange(selected);
     }, 80);
   };
 
   return (
     <label className={styles.wheelPicker}>
       <span>{label}</span>
-      <div className={styles.wheelWindow}>
+      <div className={styles.wheelWindow} data-unset={value === undefined}>
         <div className={styles.wheelHighlight} />
         <div ref={ref} className={styles.wheelScroll} onScroll={commitScroll} tabIndex={0} role="listbox" aria-label={label}>
           <i aria-hidden="true" />
+          <button type="button" className={styles.wheelUnset} role="option" aria-selected={value === undefined}>미입력</button>
           {values.map((item) => <button type="button" role="option" aria-selected={item === value} key={item} onClick={() => onChange(item)}>{item}</button>)}
           <i aria-hidden="true" />
         </div>

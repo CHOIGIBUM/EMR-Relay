@@ -100,7 +100,8 @@
   box-shadow: 0 0 0 4px rgba(66, 214, 164, 0.1);
 }
 
-.logout {
+.logout,
+.demoReset {
   min-height: 38px;
   display: inline-flex;
   align-items: center;
@@ -112,13 +113,25 @@
   background: rgba(255, 255, 255, 0.06);
 }
 
-.mobileHeader .logout {
+.demoReset {
+  color: #d7edf2;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.demoReset:disabled {
+  opacity: .5;
+}
+
+.mobileHeader .logout,
+.mobileHeader .demoReset {
   width: 38px;
   padding: 0;
   justify-content: center;
 }
 
-.mobileHeader .logout span {
+.mobileHeader .logout span,
+.mobileHeader .demoReset span {
   display: none;
 }
 
@@ -296,10 +309,56 @@
   font-size: 21px;
 }
 
+.dispatchId {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dispatchId span {
+  color: #087f8c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.dispatchId strong {
+  color: #102f44;
+  font-size: 20px;
+  letter-spacing: -.02em;
+}
+
+.dispatchBrief h2 {
+  margin: 13px 0 0;
+  color: #102f44;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.reportEstimate {
+  display: block;
+  margin-top: 5px;
+  color: #778b96;
+  font-size: 11px;
+  font-weight: 750;
+}
+
 .dispatchBrief p {
-  margin: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 15px 0 0;
   color: #5e7280;
   line-height: 1.6;
+}
+
+.dispatchBrief p svg {
+  width: 17px;
+  min-width: 17px;
+  margin-top: 3px;
+  color: #078894;
 }
 
 .dispatchBrief > div {
@@ -317,6 +376,69 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.callerBrief {
+  justify-content: space-between;
+}
+
+.dispatchRoute {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #cddfe4;
+  border-radius: 17px;
+  background: #fff;
+  box-shadow: 0 8px 22px rgba(25, 60, 78, 0.045);
+}
+
+.dispatchRoute > header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 15px;
+}
+
+.dispatchRoute > header div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dispatchRoute > header small {
+  color: #087f8c;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.dispatchRoute > header strong {
+  font-size: 14px;
+}
+
+.dispatchRoute > header > span {
+  max-width: 150px;
+  overflow: hidden;
+  color: #6b7e89;
+  font-size: 10px;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dispatchRoute > div {
+  position: relative;
+  height: 230px;
+  border-top: 1px solid #d9e5e8;
+}
+
+.dispatchOriginAddress {
+  margin: 0;
+  padding: 10px 14px;
+  border-top: 1px solid #e1eaec;
+  color: #637984;
+  background: #f8fbfc;
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .locationCard {
@@ -684,6 +806,16 @@
   font-size: 22px;
 }
 
+.wheelScroll .wheelUnset {
+  color: #83959f;
+  font-size: 14px;
+}
+
+.wheelScroll .wheelUnset[aria-selected="true"] {
+  color: #a33f45;
+  font-size: 16px;
+}
+
 .wheelWindow > small {
   position: absolute;
   z-index: 2;
@@ -692,6 +824,10 @@
   color: #78909b;
   font-size: 10px;
   pointer-events: none;
+}
+
+.wheelWindow[data-unset="true"] > small {
+  visibility: hidden;
 }
 
 .warning,
@@ -747,9 +883,9 @@
 
 .pttPanel {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   gap: 10px;
-  margin-top: 16px;
+  margin: 0 0 12px;
   padding: 13px;
   border: 1px solid #b9dadd;
   border-radius: 14px;
@@ -778,7 +914,8 @@
 }
 
 .pttActions > button {
-  min-width: 94px;
+  min-height: 50px;
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -788,10 +925,48 @@
   color: #fff;
   background: #087f8c;
   font-weight: 800;
+  touch-action: none;
+  user-select: none;
 }
 
 .pttActions > button[data-listening="true"] {
   background: #bf4147;
+}
+
+.recordIcon {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .16);
+}
+
+.recordIcon svg {
+  width: 16px;
+}
+
+.recordIcon i {
+  position: absolute;
+  right: -2px;
+  bottom: 0;
+  width: 8px;
+  height: 8px;
+  border: 2px solid #087f8c;
+  border-radius: 50%;
+  background: #dce9ec;
+}
+
+.pttActions > button[data-listening="true"] .recordIcon i {
+  border-color: #bf4147;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(255, 255, 255, .2);
+  animation: voicePulse 1.1s ease-out infinite;
+}
+
+@keyframes voicePulse {
+  50% { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
 }
 
 .pttActions > button:disabled {
@@ -801,6 +976,79 @@
 .pttPanel textarea,
 .pttPanel > span {
   grid-column: 1 / -1;
+}
+
+.liveTranscript {
+  min-height: 82px;
+  padding: 12px;
+  border: 1px solid #c7dce0;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.liveTranscript > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #55707d;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.liveTranscript > span i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #9cb0b8;
+}
+
+.liveTranscript[data-listening="true"] > span {
+  color: #b2373d;
+}
+
+.liveTranscript[data-listening="true"] > span i {
+  background: #d84950;
+  animation: voicePulseDot 1.1s ease-in-out infinite;
+}
+
+@keyframes voicePulseDot {
+  50% { opacity: .35; transform: scale(.72); }
+}
+
+.liveTranscript p {
+  margin: 9px 0 0;
+  color: #163448;
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.55;
+}
+
+.transcriptEditor {
+  display: grid;
+  gap: 6px;
+}
+
+.transcriptEditor > span {
+  color: #4a6471;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.restructureVoice {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid #8fc1c5;
+  border-radius: 10px;
+  color: #087f8c;
+  background: #fff;
+  font-weight: 800;
+}
+
+.restructureVoice svg {
+  width: 15px;
 }
 
 .pttPanel > span {
@@ -896,6 +1144,18 @@
   color: #b33d44;
   font-size: 13px;
   font-weight: 800;
+}
+
+.stickyFormError {
+  z-index: 6;
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid #f0c7ca;
+  color: #a6353c;
+  background: #fff3f3;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.45;
 }
 
 .globalError {

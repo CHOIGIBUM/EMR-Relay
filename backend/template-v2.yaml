@@ -245,6 +245,9 @@ Resources:
           requestHospitalMatching:
             Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
             Pipeline: [InvokeAppSyncLambda]
+          resetDemoCases:
+            Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
+            Pipeline: [InvokeAppSyncLambda]
           createTranscribeSession:
             Runtime: { Name: APPSYNC_JS, Version: "1.0.0" }
             Pipeline: [InvokeVoiceLambda]

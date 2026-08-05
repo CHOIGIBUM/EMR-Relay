@@ -15,6 +15,8 @@ type Mutation {
   requestHospitalMatching(input: HospitalMatchingInput!): MatchingJob!
   createTranscribeSession(input: TranscribeSessionInput!): TranscribeSession!
   structureVoiceUpdate(input: VoiceProposalInput!): VoiceProposal!
+  resetDemoCases(input: DemoResetInput!): DemoResetResult!
+    @aws_cognito_user_pools(cognito_groups: ["paramedic"])
 
   # Internal IAM-only publishers used by the asynchronous matching worker.
   # The Lambda resolver also rejects non-IAM identities for these fields.
@@ -121,6 +123,13 @@ type VoiceProposal {
   requiresHumanReview: Boolean!
 }
 
+type DemoResetResult {
+  caseIds: [ID!]!
+  deletedItems: Int!
+  restoredItems: Int!
+  resetAt: AWSDateTime!
+}
+
 input ExecuteCommandInput {
   caseId: ID!
   commandId: ID!
@@ -153,6 +162,10 @@ input VoiceProposalInput {
   transcript: String!
   focus: VoiceUpdateFocus
   observedAt: AWSDateTime
+}
+
+input DemoResetInput {
+  confirmation: String!
 }
 
 input CaseUpdateInput {

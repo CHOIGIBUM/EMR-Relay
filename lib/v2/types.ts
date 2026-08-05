@@ -1,5 +1,14 @@
 export type V2Role = "paramedic" | "hospital";
 
+export const DEMO_RESET_CONFIRMATION = "RESET_EMS_RELAY_DEMO";
+
+export type DemoResetResult = {
+  caseIds: string[];
+  deletedItems: number;
+  restoredItems: number;
+  resetAt: string;
+};
+
 export type V2RealtimeStatus = "connecting" | "connected" | "reconnecting" | "disconnected";
 
 export type V2RealtimeScope =

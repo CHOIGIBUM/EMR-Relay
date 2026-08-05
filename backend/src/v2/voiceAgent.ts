@@ -72,6 +72,13 @@ Safety rules:
 - sourceText must be a short exact Korean quote from the transcript.
 - Use needs_confirmation whenever wording is ambiguous.
 - For measured values, use a JSON number in value and the unit in unit.
+- Use these exact canonical strings when the corresponding path is returned:
+  patient.sex = 남성 | 여성 | 미상;
+  assessment.airway = 개방 | 확보 필요;
+  assessment.breathing = 자발호흡 | 호흡 이상;
+  assessment.circulation = 맥박 촉지 | 순환 불안정;
+  assessment.cpss.face and assessment.cpss.arm = 정상 | 좌측 이상 | 우측 이상 | 평가 불가;
+  assessment.cpss.speech = 정상 | 구음장애 | 실어증 | 평가 불가.
 - Call submit_patient_update exactly once and output no prose outside the tool call.`;
 
 export class VoiceAgentOutputError extends Error {
